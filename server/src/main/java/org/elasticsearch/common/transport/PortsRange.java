@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.StringTokenizer;
 
-public class PortsRange {
+public class PortsRange {  //// no longer needed, just single value
 
     private final String portRange;
 

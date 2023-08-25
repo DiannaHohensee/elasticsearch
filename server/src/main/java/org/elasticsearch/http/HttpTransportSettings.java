@@ -82,7 +82,7 @@ public final class HttpTransportSettings {
 
     public static final Setting<PortsRange> SETTING_HTTP_PORT = new Setting<>(
         "http.port",
-        "9200-9300",
+        "9300",
         PortsRange::new,
         Property.NodeScope
     );

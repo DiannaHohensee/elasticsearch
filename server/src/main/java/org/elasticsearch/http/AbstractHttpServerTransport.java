@@ -201,7 +201,7 @@ public abstract class AbstractHttpServerTransport extends AbstractLifecycleCompo
     private TransportAddress bindAddress(final InetAddress hostAddress) {
         final AtomicReference<Exception> lastException = new AtomicReference<>();
         final AtomicReference<InetSocketAddress> boundSocket = new AtomicReference<>();
-        boolean success = port.iterate(portNumber -> {
+        boolean success = port.iterate(portNumber -> {        //// no longer iterate, single value
             try {
                 synchronized (httpServerChannels) {
                     HttpServerChannel httpServerChannel = bind(new InetSocketAddress(hostAddress, portNumber));
