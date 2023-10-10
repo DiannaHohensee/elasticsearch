@@ -49,6 +49,7 @@ public class NodeStats extends BaseNodeResponse implements ChunkedToXContent {
 
     private final long timestamp;
 
+    ///// This is the path
     @Nullable
     private NodeIndicesStats indices;
 

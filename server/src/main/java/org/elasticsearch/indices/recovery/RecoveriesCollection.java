@@ -145,7 +145,7 @@ public class RecoveriesCollection {
     }
 
     /**
-     * gets the {@link RecoveryTarget } for a given id. The RecoveryStatus returned has it's ref count already incremented
+     * gets the {@link RecoveryTarget } for a given id. The RecoveryStatus returned has its ref count already incremented
      * to make sure it's safe to use. However, you must call {@link RecoveryTarget#decRef()} when you are done with it, typically
      * by using this method in a try-with-resources clause.
      * <p>
@@ -160,7 +160,7 @@ public class RecoveriesCollection {
     }
 
     /** Similar to {@link #getRecovery(long)} but throws an exception if no recovery is found */
-    public RecoveryRef getRecoverySafe(long id, ShardId shardId) {
+    public RecoveryRef getRecoverySafe(long id, ShardId shardId) throws IndexShardClosedException {
         RecoveryRef recoveryRef = getRecovery(id);
         if (recoveryRef == null) {
             throw new IndexShardClosedException(shardId);

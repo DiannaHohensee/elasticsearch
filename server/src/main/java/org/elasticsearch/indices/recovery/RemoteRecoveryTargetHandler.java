@@ -50,6 +50,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
+/**
+ * Handles making remote requests against the target node, from the source node, for peer to peer shard recovery.
+ */
 public class RemoteRecoveryTargetHandler implements RecoveryTargetHandler {
 
     private static final Logger logger = LogManager.getLogger(RemoteRecoveryTargetHandler.class);
@@ -262,11 +265,16 @@ public class RemoteRecoveryTargetHandler implements RecoveryTargetHandler {
         final RateLimiter rl = recoverySettings.rateLimiter();
         if (rl != null) {
             long bytes = bytesSinceLastPause.addAndGet(content.length());
+            logger.info("~~~RemoteRecoveryTargetHandler, bytes: " + bytes + ", rl.getMinPauseCheckBytes(): " + rl.getMinPauseCheckBytes());
             if (bytes > rl.getMinPauseCheckBytes()) {
                 // Time to pause
                 bytesSinceLastPause.addAndGet(-bytes);
                 try {
+                    logger.info("~~~RemoteRecoveryTargetHandler, about to pause");
+                    var roughWaitSeconds = (bytes / 1024. / 1024.) / rl.getMBPerSec();
+                    logger.info("~~~RemoteRecoveryTargetHandler, rough wait time seconds calculation: " + roughWaitSeconds);
                     throttleTimeInNanos = rl.pause(bytes);
+                    logger.info("~~~RemoteRecoveryTargetHandler, done pausing");
                     onSourceThrottle.accept(throttleTimeInNanos);
                 } catch (IOException e) {
                     throw new ElasticsearchException("failed to pause recovery", e);
@@ -278,11 +286,11 @@ public class RemoteRecoveryTargetHandler implements RecoveryTargetHandler {
             throttleTimeInNanos = 0;
         }
 
-        final String action = PeerRecoveryTargetService.Actions.FILE_CHUNK;
+        final String action = PeerRecoveryTargetService.Actions.FILE_CHUNK;         ////////////////
         final long requestSeqNo = requestSeqNoGenerator.getAndIncrement();
         /* we send estimateTotalOperations with every request since we collect stats on the target and that way we can
          * see how many translog ops we accumulate while copying files across the network. A future optimization
-         * would be in to restart file copy again (new deltas) if we have too many translog ops are piling up.
+         * would be in to restart file copy again (new deltas) if we have too many translog ops piling up.
          */
         final RecoveryFileChunkRequest request = new RecoveryFileChunkRequest(
             recoveryId,

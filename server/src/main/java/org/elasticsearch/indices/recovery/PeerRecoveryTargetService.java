@@ -77,6 +77,11 @@ import static org.elasticsearch.index.seqno.SequenceNumbers.UNASSIGNED_SEQ_NO;
  * <p>
  * Note, it can be safely assumed that there will only be a single recovery per shard (index+id) and
  * not several of them (since we don't allocate several shard replicas to the same node).
+ *
+ * The PeerRecoveryTargetService is primarily a service entrypoint for recovery commands sent back and
+ * forth between the source and target nodes involved in peer shard recoveries. The PeerRecoveryTargetService
+ * is the interface between recovery steps initiated by server command and the RecoveriesCollection
+ * running the actual recoveries.
  */
 public class PeerRecoveryTargetService implements IndexEventListener {
 
@@ -102,6 +107,7 @@ public class PeerRecoveryTargetService implements IndexEventListener {
     private final ClusterService clusterService;
     private final SnapshotFilesProvider snapshotFilesProvider;
 
+    // Tracks the active shard recoveries
     private final RecoveriesCollection onGoingRecoveries;
 
     public PeerRecoveryTargetService(
@@ -528,7 +534,7 @@ public class PeerRecoveryTargetService implements IndexEventListener {
     /**
      * Acquire a reference to the given recovery, throwing an {@link IndexShardClosedException} if the recovery is unknown.
      */
-    public RecoveryRef getRecoveryRef(long recoveryId, ShardId shardId) {
+    public RecoveryRef getRecoveryRef(long recoveryId, ShardId shardId) throws IndexShardClosedException {
         return onGoingRecoveries.getRecoverySafe(recoveryId, shardId);
     }
 
@@ -634,7 +640,7 @@ public class PeerRecoveryTargetService implements IndexEventListener {
     private class FileChunkTransportRequestHandler extends RecoveryRequestHandler<RecoveryFileChunkRequest> {
 
         // How many bytes we've copied since we last called RateLimiter.pause
-        final AtomicLong bytesSinceLastPause = new AtomicLong();
+        final AtomicLong bytesSinceLastPause = new AtomicLong();          //// oh ho, this is per file, <dance, dance>
 
         @Override
         protected void handleRequest(RecoveryFileChunkRequest request, RecoveryTarget target, ActionListener<Void> listener)
@@ -646,13 +652,14 @@ public class PeerRecoveryTargetService implements IndexEventListener {
 
             RateLimiter rateLimiter = recoverySettings.rateLimiter();
             if (rateLimiter != null) {
-                long bytes = bytesSinceLastPause.addAndGet(request.content().length());
+                long bytes = bytesSinceLastPause.addAndGet(request.content().length());     //// first add the request bytes
                 if (bytes > rateLimiter.getMinPauseCheckBytes()) {
                     // Time to pause
-                    bytesSinceLastPause.addAndGet(-bytes);
-                    long throttleTimeInNanos = rateLimiter.pause(bytes);
+                    bytesSinceLastPause.addAndGet(-bytes);      //// then subtract the request bytes. but this is wrong. should subtract getMinPauseCheckBytes()?
+                    long throttleTimeInNanos = rateLimiter.pause(bytes); //// throttleTimeInNanos will be zero because 1s already elapsed since last call.
                     indexState.addTargetThrottling(throttleTimeInNanos);
-                    target.indexShard().recoveryStats().addThrottleTime(throttleTimeInNanos);
+                    target.indexShard().recoveryStats().addThrottleTime(throttleTimeInNanos);    //// why isn't this showing up in the stats the test looks at??
+                    System.out.println("~~~PeerRecoveryTargetService, handleRequest, rate limiter activated pause");
                 }
             }
             target.writeFileChunk(
