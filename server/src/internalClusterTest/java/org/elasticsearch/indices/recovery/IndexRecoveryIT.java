@@ -462,7 +462,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         final String nodeA = internalCluster().startNode();
 
         logger.info("--> create index on node A");
-        ByteSizeValue shardSize = createAndPopulateIndex(INDEX_NAME, 1, ONE_SHARD_COUNT, ZERO_REPLICA_COUNT).getShards()[0].getStats()
+        ByteSizeValue shardSize = createAndPopulateIndex(INDEX_NAME, 1, SHARD_COUNT, REPLICA_COUNT).getShards()[0].getStats()
             .getStore()
             .size();
 
@@ -552,7 +552,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             for (NodeStats nodeStats : statsResponse1.getNodes()) {
                 final RecoveryStats recoveryStats = nodeStats.getIndices().getRecoveryStats();
                 if (nodeStats.getNode().getName().equals(nodeA)) {
-                    logger.info("--> Node A throttling: " + recoveryStats.throttleTime().millis());
+                    logger.info("~~~~ Node A throttling: " + recoveryStats.throttleTime().millis());
                     assertThat(
                         "node A throttling should  increase",
                         recoveryStats.throttleTime().millis(),
@@ -560,7 +560,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
                     );
                 }
                 if (nodeStats.getNode().getName().equals(nodeB)) {
-                    logger.info("--> Node B throttling: " + recoveryStats.throttleTime().millis());
+                    logger.info("~~~~ Node B throttling: " + recoveryStats.throttleTime().millis());
                     assertThat(
                         "node B throttling should _not_ increase",
                         recoveryStats.throttleTime().millis(),
@@ -818,7 +818,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
 
         System.out.println("~~~~testRerouteRecovery end");
     }
-/*
+
     public void testSnapshotRecovery() throws Exception {
         logger.info("--> start node A");
         String nodeA = internalCluster().startNode();
@@ -869,7 +869,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             }
         }
     }
-*/
+
     private List<RecoveryState> findRecoveriesForTargetNode(String nodeName, List<RecoveryState> recoveryStates) {
         List<RecoveryState> nodeResponses = new ArrayList<>();
         for (RecoveryState recoveryState : recoveryStates) {
@@ -919,7 +919,6 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         assertThat(indexState.recoveredBytesPercent(), lessThanOrEqualTo(100.0f));
     }
 
-    /*
     public void testTransientErrorsDuringRecoveryAreRetried() throws Exception {
         final String recoveryActionToBlock = randomFrom(
             PeerRecoveryTargetService.Actions.PREPARE_TRANSLOG,
@@ -932,7 +931,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         );
         checkTransientErrorsDuringRecoveryAreRetried(recoveryActionToBlock);
     }
-*//*
+
     public void testDisconnectsWhileRecovering() throws Exception {
         final String recoveryActionToBlock = randomFrom(
             PeerRecoverySourceService.Actions.START_RECOVERY,
@@ -946,12 +945,11 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         );
         checkDisconnectsWhileRecovering(recoveryActionToBlock);
     }
-*/
     /**
      * Tests scenario where recovery target successfully sends recovery request to source but then the channel gets closed while
      * the source is working on the recovery process.
      */
-/*    public void testDisconnectsDuringRecovery() throws Exception {
+    public void testDisconnectsDuringRecovery() throws Exception {
         checkDisconnectsDuringRecovery(false);
     }
 
@@ -1061,9 +1059,9 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         indicesAdmin().prepareRefresh("test").get();
         assertHitCount(client().prepareSearch().get(), numDocs);
     }
-*/
+
     /** Makes sure the new master does not repeatedly fetch index metadata from recovering replicas */
-/*    public void testOngoingRecoveryAndMasterFailOver() throws Exception {
+    public void testOngoingRecoveryAndMasterFailOver() throws Exception {
         String indexName = "test";
         internalCluster().startNodes(2);
         String nodeWithPrimary = internalCluster().startDataOnlyNode();
@@ -1106,8 +1104,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         }
         ensureGreen(indexName);
     }
-*/
-    /*
+
     @TestLogging(
         reason = "https://github.com/elastic/elasticsearch/issues/89235",
         value = "org.elasticsearch.indices.recovery:TRACE, org.elasticsearch.index.shard:TRACE, org.elasticsearch.index.engine:TRACE"
@@ -1353,7 +1350,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             .get();
         assertThat(recoveryState.getIndex().totalFileCount(), greaterThan(0));
     }
-*//*
+
     public void testUsesFileBasedRecoveryIfOperationsBasedRecoveryWouldBeUnreasonable() throws Exception {
         internalCluster().ensureAtLeastNumDataNodes(2);
 
@@ -1434,7 +1431,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
                             )
                         )
                     );
-*/
+
                     /*
                      *     newDocCount >= (ceil(docCount * p) + 1) / (1-p)
                      *
@@ -1452,7 +1449,6 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
                      *
                      * ==> it is unreasonable to recover the replica using a seqno-based recovery
                      */
-/*
                     indexRandom(
                         randomBoolean(),
                         randomBoolean(),
@@ -1491,7 +1487,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             .get();
         assertThat(recoveryState.getIndex().totalFileCount(), greaterThan(0));
     }
-*//*
+
     public void testDoesNotCopyOperationsInSafeCommit() throws Exception {
         internalCluster().ensureAtLeastNumDataNodes(2);
 
@@ -1541,7 +1537,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             lessThanOrEqualTo(maxSeqNoAfterRecovery - maxSeqNoBeforeRecovery)
         );
     }
-*/
+
     public static final class TestAnalysisPlugin extends Plugin implements AnalysisPlugin {
         final AtomicBoolean throwParsingError = new AtomicBoolean();
 
@@ -1561,7 +1557,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             );
         }
     }
-/*
+
     public void testRepeatedRecovery() throws Exception {
         internalCluster().ensureAtLeastNumDataNodes(2);
 
@@ -1794,8 +1790,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
             equalTo(0L)
         );
     }
-*/
-    /*
+
     public void testWaitForClusterStateToBeAppliedOnSourceNode() throws Exception {
         internalCluster().startMasterOnlyNode();
         final var primaryNode = internalCluster().startDataOnlyNode();
@@ -1869,8 +1864,6 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         }
     }
 
-     */
-/*
     public void testDeleteIndexDuringFinalization() throws Exception {
         internalCluster().startMasterOnlyNode();
         final var primaryNode = internalCluster().startDataOnlyNode();
@@ -1968,7 +1961,7 @@ public class IndexRecoveryIT extends AbstractIndexRecoveryIntegTestCase {
         assertBusy(() -> assertEquals(0, peerRecoverySourceService.numberOfOngoingRecoveries()));
         recoveryCompleteListener.onResponse(null);
     }
-*/
+
     private void assertGlobalCheckpointIsStableAndSyncedInAllNodes(String indexName, List<String> nodes, int shard) throws Exception {
         assertThat(nodes, is(not(empty())));
 

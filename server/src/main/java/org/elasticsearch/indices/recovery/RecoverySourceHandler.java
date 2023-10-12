@@ -610,7 +610,6 @@ public class RecoverySourceHandler {
                 );
             }
 
-            ////// Diverging, failure path sees fewer files
             for (StoreFileMetadata md : shardRecoveryPlan.getSourceFilesToRecover()) {
                 if (request.metadataSnapshot().fileMetadataMap().containsKey(md.name())) {
                     logger.trace(
@@ -620,7 +619,6 @@ public class RecoverySourceHandler {
                         md
                     );
                 } else {
-                    ////// always (both success & failure) here logging, 'does not exist in remote'
                     logger.trace("recovery [phase1]: recovering [{}] from peer, does not exist in remote", md.name());
                 }
             }

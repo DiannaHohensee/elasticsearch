@@ -80,5 +80,3 @@
 # Allow wildcard deletion of indices:
 #
 #action.destructive_requires_name: false
-
-xpack.security.enabled: false

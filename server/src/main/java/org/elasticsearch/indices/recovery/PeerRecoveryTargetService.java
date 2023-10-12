@@ -653,13 +653,17 @@ public class PeerRecoveryTargetService implements IndexEventListener {
             RateLimiter rateLimiter = recoverySettings.rateLimiter();
             if (rateLimiter != null) {
                 long bytes = bytesSinceLastPause.addAndGet(request.content().length());     //// first add the request bytes
+                logger.info("~~~PeerRecoveryTargetService, bytes: " + bytes + ", rateLimiter.getMinPauseCheckBytes(): " + rateLimiter.getMinPauseCheckBytes());
                 if (bytes > rateLimiter.getMinPauseCheckBytes()) {
                     // Time to pause
+                    logger.info("~~~PeerRecoveryTargetService, about to pause");
                     bytesSinceLastPause.addAndGet(-bytes);      //// then subtract the request bytes. but this is wrong. should subtract getMinPauseCheckBytes()?
+                    var roughWaitSeconds = (bytes / 1024. / 1024.) / rateLimiter.getMBPerSec();
+                    logger.info("~~~PeerRecoveryTargetService, rough wait time seconds calculation: " + roughWaitSeconds);
                     long throttleTimeInNanos = rateLimiter.pause(bytes); //// throttleTimeInNanos will be zero because 1s already elapsed since last call.
+                    logger.info("~~~PeerRecoveryTargetService, done pausing, throttleTimeInNanos: " + throttleTimeInNanos);
                     indexState.addTargetThrottling(throttleTimeInNanos);
                     target.indexShard().recoveryStats().addThrottleTime(throttleTimeInNanos);    //// why isn't this showing up in the stats the test looks at??
-                    System.out.println("~~~PeerRecoveryTargetService, handleRequest, rate limiter activated pause");
                 }
             }
             target.writeFileChunk(

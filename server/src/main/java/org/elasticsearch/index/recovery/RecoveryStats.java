@@ -68,7 +68,7 @@ public class RecoveryStats implements ToXContentFragment, Writeable {
     /**
      * Total time recoveries waited due to throttling
      */
-    public TimeValue throttleTime() {     /////////
+    public TimeValue throttleTime() {
         return TimeValue.timeValueNanos(throttleTimeInNanos.get());
     }
 

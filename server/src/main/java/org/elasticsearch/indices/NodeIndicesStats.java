@@ -60,7 +60,6 @@ public class NodeIndicesStats implements Writeable, ChunkedToXContent {
 
     private static final TransportVersion VERSION_SUPPORTING_STATS_BY_INDEX = TransportVersions.V_8_5_0;
 
-    ///// this is the path, NodeStats calls stats.getRecoveryStats(), which go to RecoveryStats
     private final CommonStats stats;
     private final Map<Index, List<IndexShardStats>> statsByShard;
     private final Map<Index, CommonStats> statsByIndex;

@@ -8,8 +8,6 @@
 
 package org.elasticsearch.indices.recovery;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.routing.RecoverySource;
 import org.elasticsearch.cluster.routing.ShardRouting;
@@ -38,7 +36,6 @@ import java.util.Map;
  * Keeps track of state related to shard recovery.
  */
 public class RecoveryState implements ToXContentFragment, Writeable {
-    private static final Logger logger = LogManager.getLogger(RecoveryState.class);
 
     public enum Stage {
         INIT((byte) 0),
@@ -922,7 +919,6 @@ public class RecoveryState implements ToXContentFragment, Writeable {
 
         public synchronized void addTargetThrottling(long timeInNanos) {
             if (targetThrottleTimeInNanos == UNKNOWN) {
-                logger.info("");
                 targetThrottleTimeInNanos = timeInNanos;
             } else {
                 targetThrottleTimeInNanos += timeInNanos;

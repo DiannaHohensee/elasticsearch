@@ -274,7 +274,7 @@ public class RemoteRecoveryTargetHandler implements RecoveryTargetHandler {
                     var roughWaitSeconds = (bytes / 1024. / 1024.) / rl.getMBPerSec();
                     logger.info("~~~RemoteRecoveryTargetHandler, rough wait time seconds calculation: " + roughWaitSeconds);
                     throttleTimeInNanos = rl.pause(bytes);
-                    logger.info("~~~RemoteRecoveryTargetHandler, done pausing");
+                    logger.info("~~~RemoteRecoveryTargetHandler, done pausing, throttleTimeInNanos: " + throttleTimeInNanos);
                     onSourceThrottle.accept(throttleTimeInNanos);
                 } catch (IOException e) {
                     throw new ElasticsearchException("failed to pause recovery", e);
