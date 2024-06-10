@@ -15,6 +15,7 @@ import org.elasticsearch.action.admin.cluster.snapshots.get.GetSnapshotsResponse
 import org.elasticsearch.action.admin.cluster.snapshots.restore.RestoreSnapshotResponse;
 import org.elasticsearch.action.admin.indices.recovery.RecoveryResponse;
 import org.elasticsearch.action.admin.indices.stats.CommonStatsFlags;
+import org.elasticsearch.action.admin.indices.stats.IndicesStatsResponse;
 import org.elasticsearch.action.admin.indices.stats.ShardStats;
 import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.search.SearchRequestBuilder;
@@ -78,6 +79,7 @@ import org.elasticsearch.transport.TransportResponse;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.junit.After;
+import org.junit.Assert;
 
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -102,6 +104,7 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import static org.elasticsearch.cluster.routing.allocation.decider.MaxRetryAllocationDecider.SETTING_ALLOCATION_MAX_RETRY;
+import static org.elasticsearch.index.store.Store.INDEX_STORE_STATS_REFRESH_INTERVAL_SETTING;
 import static org.elasticsearch.indices.recovery.RecoverySettings.INDICES_RECOVERY_INTERNAL_ACTION_RETRY_TIMEOUT_SETTING;
 import static org.elasticsearch.indices.recovery.RecoverySettings.INDICES_RECOVERY_MAX_BYTES_PER_SEC_SETTING;
 import static org.elasticsearch.indices.recovery.RecoverySettings.INDICES_RECOVERY_MAX_CONCURRENT_FILE_CHUNKS_SETTING;
@@ -636,7 +639,11 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
         }
     }
 
-    public void testCancelledRecoveryAbortsDownloadPromptly() throws Exception {
+    @TestLogging(
+        value = "org.elasticsearch.snapshots:DEBUG,org.elasticsearch.index:DEBUG,org.elasticsearch.indices.recovery:TRACE",
+        reason = "increasing logging for test failure: https://github.com/elastic/elasticsearch/issues/107628"
+    )
+    public void testCancelledRecoveryAbortsDownloadPromptly() throws Exception {          //////////
         updateSetting(INDICES_RECOVERY_MAX_CONCURRENT_SNAPSHOT_FILE_DOWNLOADS.getKey(), "1");
 
         try {
@@ -647,7 +654,9 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
                 indexName,
                 Settings.builder()
                     .put(IndexMetadata.SETTING_NUMBER_OF_SHARDS, 1)
-                    .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0)
+                    .put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 0) // start with zero and we'll add one later to initiate recovery
+                    .put(INDEX_STORE_STATS_REFRESH_INTERVAL_SETTING.getKey(), "0ms")
+                    .put(IndexService.GLOBAL_CHECKPOINT_SYNC_INTERVAL_SETTING.getKey(), "1s") // speed up for testing
                     .put(MergePolicyConfig.INDEX_MERGE_ENABLED, false) // merging might change the primary segments after the snapshot
                     .build()
             );
@@ -663,6 +672,35 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
             final AtomicBoolean isCancelled = new AtomicBoolean();
             final CountDownLatch readFromBlobCalledLatch = new CountDownLatch(1);
             final CountDownLatch readFromBlobRespondLatch = new CountDownLatch(1);
+
+            FilterFsRepository.wrapReadBlobMethod((blobName, stream) -> {
+                // Catch data file reads, as opposed to metadata reads: data files begin with underscores.
+                if (blobName.startsWith("__")) {
+                    logger.info("~~~FilterFsRepository.wrapReadBlobMethod if: blobName: " + blobName);
+                    return new FilterInputStream(stream) {
+                        @Override
+                        public int read() throws IOException {
+                            beforeRead();
+                            return super.read();
+                        }
+
+                        @Override
+                        public int read(byte[] b, int off, int len) throws IOException {
+                            beforeRead();
+                            return super.read(b, off, len);
+                        }
+
+                        private void beforeRead() {
+                            assertFalse(isCancelled.get()); // should have no further reads once the index is deleted
+                            readFromBlobCalledLatch.countDown();
+                            safeAwait(readFromBlobRespondLatch);
+                        }
+                    };
+                } else {
+                    logger.info("~~~FilterFsRepository.wrapReadBlobMethod else: blobName: " + blobName);
+                    return stream;
+                }
+            });
 
             internalCluster().getInstances(TransportService.class)
                 .forEach(
@@ -708,37 +746,12 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
                     )
                 );
 
-            FilterFsRepository.wrapReadBlobMethod((blobName, stream) -> {
-                if (blobName.startsWith("__")) {
-                    return new FilterInputStream(stream) {
-                        @Override
-                        public int read() throws IOException {
-                            beforeRead();
-                            return super.read();
-                        }
-
-                        @Override
-                        public int read(byte[] b, int off, int len) throws IOException {
-                            beforeRead();
-                            return super.read(b, off, len);
-                        }
-
-                        private void beforeRead() {
-                            assertFalse(isCancelled.get()); // should have no further reads once the index is deleted
-                            readFromBlobCalledLatch.countDown();
-                            safeAwait(readFromBlobRespondLatch);
-                        }
-                    };
-                } else {
-                    return stream;
-                }
-            });
-
+            // Add a replica and wait for the pause right before the blob store read.
             updateIndexSettings(Settings.builder().put(IndexMetadata.SETTING_NUMBER_OF_REPLICAS, 1), indexName);
             safeAwait(readFromBlobCalledLatch);
 
             assertAcked(indicesAdmin().prepareDelete(indexName).get());
-            // cancellation flag is set when applying the cluster state that deletes the index, so no further waiting is necessary
+            // Make sure no further index reads occur: there shouldn't be any since the index was deleted. Then release the read latch.
             isCancelled.set(true);
             readFromBlobRespondLatch.countDown();
 
@@ -1551,6 +1564,9 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
         return -1;
     }
 
+    /**
+     * Indexes documents into the given index. Waits for the checkpointer to set the safe commit to the latest commit.
+     */
     private void indexDocs(String indexName, int docIdOffset, int docCount) throws Exception {
         IndexRequestBuilder[] builders = new IndexRequestBuilder[docCount];
         for (int i = 0; i < builders.length; i++) {
@@ -1558,12 +1574,21 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
             builders[i] = prepareIndex(indexName).setId(Integer.toString(docId)).setSource("field", docId, "field2", "Some text " + docId);
         }
         indexRandom(true, builders);
+        logger.info("~~~indexDocs docCount: " + docCount);
 
         // Ensure that the safe commit == latest commit
         assertBusy(() -> {
-            ShardStats stats = indicesAdmin().prepareStats(indexName)
-                .clear()
-                .get()
+            logger.info("~~~indexDocs 1");
+
+            IndicesStatsResponse indexStats = indicesAdmin().prepareStats(indexName).setDocs(true).get();
+            logger.info("~~~indexDocs 2 count: " + indexStats.getIndex(indexName).getTotal().getDocs().getCount());
+            assertThat(indexStats.getIndex(indexName).getTotal().getDocs().getCount(), is((long) docCount));
+            logger.info("~~~indexDocs 3");
+
+            ShardStats stats = indexStats
+//                indicesAdmin().prepareStats(indexName)
+//                .setDocs(true)
+//                .get()
                 .asMap()
                 .entrySet()
                 .stream()
@@ -1573,14 +1598,22 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
                 .orElse(null);
             assertThat(stats, is(notNullValue()));
             assertThat(stats.getSeqNoStats(), is(notNullValue()));
+            logger.info("~~~indexDocs 4");
 
             assertThat(stats.getSeqNoStats().getMaxSeqNo(), is(greaterThan(-1L)));
             assertThat(stats.getSeqNoStats().getGlobalCheckpoint(), is(greaterThan(-1L)));
+            logger.info("~~~indexDocs 5, maxSeqNo: "
+                + stats.getSeqNoStats().getMaxSeqNo()
+                + ", globalCheckpoint: "
+                + stats.getSeqNoStats().getGlobalCheckpoint());
+
             assertThat(
                 Strings.toString(stats.getSeqNoStats()),
                 stats.getSeqNoStats().getMaxSeqNo(),
                 equalTo(stats.getSeqNoStats().getGlobalCheckpoint())
             );
+            logger.info("~~~indexDocs 6 -- done!");
+
         }, 60, TimeUnit.SECONDS);
     }
 
@@ -1589,7 +1622,6 @@ public class SnapshotBasedIndexRecoveryIT extends AbstractSnapshotIntegTestCase 
         for (int testCase = 0; testCase < 3; testCase++) {
             final SearchRequestBuilder searchRequestBuilder = prepareSearch(indexName).addSort("field", SortOrder.ASC).setSize(10_000);
 
-            // SearchResponse searchResponse;
             switch (testCase) {
                 case 0 -> assertResponse(searchRequestBuilder.setQuery(QueryBuilders.matchAllQuery()), searchResponse -> {
                     assertSearchResponseContainsAllIndexedDocs(searchResponse, docCount);
