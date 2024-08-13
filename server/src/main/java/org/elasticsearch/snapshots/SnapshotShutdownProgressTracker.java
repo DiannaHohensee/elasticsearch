@@ -107,18 +107,19 @@ public class SnapshotShutdownProgressTracker {
      * Logs some statistics about shard snapshot progress.
      */
     private void logProgressReport() {
+        assert this.shutdownStartMillis != -1;
+
         // A shard snapshot has two phases for tracking, for reporting purposes. The first is while the shard snapshot is running on the
         // data node. The second, to update the shard snapshot status in the cluster state on the master node, occurs asynchronously upon
         // shard snapshot completion.
         logger.info(
             """
                 Current active shard snapshot stats. \
-                Node shutdown cluster state update received at [{}}]. \
+                Node shutdown cluster state update received at [{}]. \
                 Finished signalling shard snapshots to pause [{}]. \
-                [Phase 1 of 2] Number shard snapshots running on the data node (have not yet noticed pause signal) [{}]. \
-                [Phase 2 of 2] Number shard snapshots running according to the master node (awaiting response to status update \
-                requests sent to master node) [{}]. \
-                Shard snapshot completion stats during shutdown: Done [{}]; Failed [{}]; Aborted [{}]; Paused [{}] \
+                [Phase 1 of 2] Number shard snapshots running on the data node (have not yet observed pause signal) [{}]. \
+                [Phase 2 of 2] Number shard snapshots finished but waiting for master node to respond to status update request [{}] \
+                Shard snapshot completion stats since shutdown began: Done [{}]; Failed [{}]; Aborted [{}]; Paused [{}] \
                 """,
             shutdownStartMillis,
             shutdownFinishedSignallingPausingMillis,
@@ -178,14 +179,18 @@ public class SnapshotShutdownProgressTracker {
      * Tracks how many shard snapshots are started.
      */
     public void incNumberOfShardSnapshotsInProgress() {
+        logger.info("~~~incNumberOfShardSnapshotsInProgress, numberOfShardSnapshotsInProgressOnDataNode val " + numberOfShardSnapshotsInProgressOnDataNode.get());
         numberOfShardSnapshotsInProgressOnDataNode.incrementAndGet();
+        logger.info("~~~incNumberOfShardSnapshotsInProgress, after val " + numberOfShardSnapshotsInProgressOnDataNode.get());
     }
 
     /**
-     * Tracks how many shard snapshots have finished.
+     * Tracks how many shard snapshots have finished since shutdown mode began.
      */
     public void decNumberOfShardSnapshotsInProgress(IndexShardSnapshotStatus.Stage stage) {
+        logger.info("~~~decNumberOfShardSnapshotsInProgress, numberOfShardSnapshotsInProgressOnDataNode val " + numberOfShardSnapshotsInProgressOnDataNode.get());
         numberOfShardSnapshotsInProgressOnDataNode.decrementAndGet();
+        logger.info("~~~decNumberOfShardSnapshotsInProgress, after val " + numberOfShardSnapshotsInProgressOnDataNode.get());
         if (shutdownStartMillis != -1) {
             switch (stage) {
                 case DONE -> doneCount.incrementAndGet();
@@ -218,5 +223,30 @@ public class SnapshotShutdownProgressTracker {
      */
     public void releaseRequestSentToMaster(Snapshot snapshot, ShardId shardId) {
         shardSnapshotRequests.remove(snapshot.toString() + shardId.getIndexName() + shardId.getId());
+    }
+
+    // Test only
+    void assertStatsForTesting(long done, long failure, long aborted, long paused) {
+        assert doneCount.get() == done: "doneCount is " + doneCount.get() + ", expected is " + done;
+        assert failureCount.get() == failure: "failureCount is " + doneCount.get() + ", expected is " + failure;
+        assert abortedCount.get() == aborted: "abortedCount is " + doneCount.get() + ", expected is " + aborted;
+        assert pausedCount.get() == paused: "pausedCount is " + doneCount.get() + ", expected is " + paused;
+    }
+
+    String logAllStatsForTesting() {
+        return String.format("""
+            progressLoggerInterval [%s], shutdownStartMillis [%s], shutdownFinishedSignallingPausingMillis [%s]
+            numberOfShardSnapshotsInProgressOnDataNode [%s], shardSnapshotRequests [%s]
+            doneCount [%s], failureCount [%s], abortedCount [%s], pausedCount [%s] \
+            """,
+            progressLoggerInterval,
+            shutdownStartMillis,
+            shutdownFinishedSignallingPausingMillis,
+            numberOfShardSnapshotsInProgressOnDataNode.get(),
+            shardSnapshotRequests.size(),
+            doneCount.get(),
+            failureCount.get(),
+            abortedCount.get(),
+            pausedCount.get());
     }
 }
