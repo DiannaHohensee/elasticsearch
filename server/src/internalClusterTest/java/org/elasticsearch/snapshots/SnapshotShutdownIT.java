@@ -8,6 +8,7 @@
 
 package org.elasticsearch.snapshots;
 
+import org.apache.logging.log4j.Level;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionResponse;
@@ -24,6 +25,7 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateUpdateTask;
 import org.elasticsearch.cluster.SnapshotDeletionsInProgress;
 import org.elasticsearch.cluster.SnapshotsInProgress;
+import org.elasticsearch.cluster.coordination.Coordinator;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.NodesShutdownMetadata;
 import org.elasticsearch.cluster.metadata.SingleNodeShutdownMetadata;
@@ -36,6 +38,7 @@ import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.test.ClusterServiceUtils;
+import org.elasticsearch.test.MockLog;
 import org.elasticsearch.test.transport.MockTransportService;
 
 import java.util.Collection;
@@ -317,13 +320,27 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
         final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName);
         addUnassignedShardsWatcher(clusterService, indexName);
 
-        putShutdownForRemovalMetadata(primaryNode, clusterService);
-        unblockAllDataNodes(repoName); // lets the shard snapshot abort, but allocation filtering stops it from moving
-        safeAwait(snapshotPausedListener);
-        assertFalse(snapshotFuture.isDone());
+        try (var mockLog = MockLog.capture(Coordinator.class, SnapshotShutdownProgressTracker.class)) {
+            mockLog.addExpectation(
+                new MockLog.UnseenEventExpectation(
+                    "expected unset ",
+                    SnapshotShutdownProgressTracker.class.getCanonicalName(),
+                    Level.INFO,
+                    "*snapshots to pause [-1]*Done [0]; Failed [0]; Aborted [0]; Paused [0]*"
+                )
+            );
 
-        // give up on the node shutdown so the shard snapshot can restart
-        clearShutdownMetadata(clusterService);
+            putShutdownForRemovalMetadata(primaryNode, clusterService);
+            unblockAllDataNodes(repoName); // lets the shard snapshot abort, but allocation filtering stops it from moving
+            safeAwait(snapshotPausedListener);
+            assertFalse(snapshotFuture.isDone());
+
+            // give up on the node shutdown so the shard snapshot can restart
+            clearShutdownMetadata(clusterService);
+
+            // Wait for the initial progress log message with no shard snapshot completions.
+            assertBusy(mockLog::assertAllExpectationsMatched);
+        }
 
         assertEquals(SnapshotState.SUCCESS, snapshotFuture.get(10, TimeUnit.SECONDS).getSnapshotInfo().state());
     }
@@ -406,6 +423,10 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
             startFullSnapshot(repoName, randomIdentifier()).get(10, TimeUnit.SECONDS).getSnapshotInfo().state()
         );
         clearShutdownMetadata(clusterService);
+    }
+
+    public void testProgressTracker() {
+        // TODO: test that requests sent to master are tracked.
     }
 
     private static SubscribableListener<Void> createSnapshotPausedListener(

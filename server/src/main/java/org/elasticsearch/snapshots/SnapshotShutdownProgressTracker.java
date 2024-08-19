@@ -136,7 +136,7 @@ public class SnapshotShutdownProgressTracker {
      * Called as soon as a node shutdown signal is received.
      */
     public void onClusterStateAddShutdown() {
-        assert this.shutdownStartMillis == -1 : "Expected not to be tracking anything, since we're only just entering shutdown mode";
+        assert this.shutdownStartMillis == -1 : "Expected not to be tracking anything. Perhaps call shutdown remove before adding shutdown";
 
         // Reset these values when a new shutdown occurs, to minimize/eliminate chances of racing if shutdown is later removed and async
         // shard snapshots updates continue to occur.
@@ -179,18 +179,14 @@ public class SnapshotShutdownProgressTracker {
      * Tracks how many shard snapshots are started.
      */
     public void incNumberOfShardSnapshotsInProgress() {
-        logger.info("~~~incNumberOfShardSnapshotsInProgress, numberOfShardSnapshotsInProgressOnDataNode val " + numberOfShardSnapshotsInProgressOnDataNode.get());
         numberOfShardSnapshotsInProgressOnDataNode.incrementAndGet();
-        logger.info("~~~incNumberOfShardSnapshotsInProgress, after val " + numberOfShardSnapshotsInProgressOnDataNode.get());
     }
 
     /**
      * Tracks how many shard snapshots have finished since shutdown mode began.
      */
     public void decNumberOfShardSnapshotsInProgress(IndexShardSnapshotStatus.Stage stage) {
-        logger.info("~~~decNumberOfShardSnapshotsInProgress, numberOfShardSnapshotsInProgressOnDataNode val " + numberOfShardSnapshotsInProgressOnDataNode.get());
         numberOfShardSnapshotsInProgressOnDataNode.decrementAndGet();
-        logger.info("~~~decNumberOfShardSnapshotsInProgress, after val " + numberOfShardSnapshotsInProgressOnDataNode.get());
         if (shutdownStartMillis != -1) {
             switch (stage) {
                 case DONE -> doneCount.incrementAndGet();
@@ -227,26 +223,9 @@ public class SnapshotShutdownProgressTracker {
 
     // Test only
     void assertStatsForTesting(long done, long failure, long aborted, long paused) {
-        assert doneCount.get() == done: "doneCount is " + doneCount.get() + ", expected is " + done;
-        assert failureCount.get() == failure: "failureCount is " + doneCount.get() + ", expected is " + failure;
-        assert abortedCount.get() == aborted: "abortedCount is " + doneCount.get() + ", expected is " + aborted;
-        assert pausedCount.get() == paused: "pausedCount is " + doneCount.get() + ", expected is " + paused;
-    }
-
-    String logAllStatsForTesting() {
-        return String.format("""
-            progressLoggerInterval [%s], shutdownStartMillis [%s], shutdownFinishedSignallingPausingMillis [%s]
-            numberOfShardSnapshotsInProgressOnDataNode [%s], shardSnapshotRequests [%s]
-            doneCount [%s], failureCount [%s], abortedCount [%s], pausedCount [%s] \
-            """,
-            progressLoggerInterval,
-            shutdownStartMillis,
-            shutdownFinishedSignallingPausingMillis,
-            numberOfShardSnapshotsInProgressOnDataNode.get(),
-            shardSnapshotRequests.size(),
-            doneCount.get(),
-            failureCount.get(),
-            abortedCount.get(),
-            pausedCount.get());
+        assert doneCount.get() == done : "doneCount is " + doneCount.get() + ", expected is " + done;
+        assert failureCount.get() == failure : "failureCount is " + doneCount.get() + ", expected is " + failure;
+        assert abortedCount.get() == aborted : "abortedCount is " + doneCount.get() + ", expected is " + aborted;
+        assert pausedCount.get() == paused : "pausedCount is " + doneCount.get() + ", expected is " + paused;
     }
 }
