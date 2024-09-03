@@ -142,7 +142,7 @@ public final class SnapshotShardsService extends AbstractLifecycleComponent impl
                     // The snapshotShutdownProgressTracker will report (via logging) on the progress shard snapshots make
                     // towards either completing (successfully or otherwise) or pausing.
                     final var previouslyInShutdownMode = previousSnapshots.isNodeIdForRemoval(localNodeId);
-                    final var currentlyInShutdownMode = previousSnapshots.isNodeIdForRemoval(localNodeId);
+                    final var currentlyInShutdownMode = currentSnapshots.isNodeIdForRemoval(localNodeId);
                     if (previouslyInShutdownMode == false && currentlyInShutdownMode) {
                         snapshotShutdownProgressTracker.onClusterStateAddShutdown();
                     }
