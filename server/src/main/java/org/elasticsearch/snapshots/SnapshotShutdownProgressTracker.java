@@ -21,6 +21,7 @@ import org.elasticsearch.index.snapshots.IndexShardSnapshotStatus;
 import org.elasticsearch.threadpool.Scheduler;
 import org.elasticsearch.threadpool.ThreadPool;
 
+import java.sql.Timestamp;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -99,13 +100,20 @@ public class SnapshotShutdownProgressTracker {
             progressLoggerInterval,
             threadPool.executor(ThreadPool.Names.GENERIC)
         );
-        logger.trace("SnapshotShutdownProgressTracker logging has been scheduled to run periodically every " + progressLoggerInterval);
+        logger.trace(String.format(
+            "Starting shutdown snapshot progress logging on node [%s], runs every [%s]",
+            clusterService.state().nodes().getLocalNodeId(),
+            progressLoggerInterval
+        ));
     }
 
     private void cancelProgressLogger() {
         assert scheduledProgressLoggerFuture != null : "Somehow shutdown mode was removed before it was added.";
         scheduledProgressLoggerFuture.cancel();
-        logger.trace("Cancelling SnapshotShutdownProgressTracker logging");
+        logger.trace(String.format(
+            "Cancelling shutdown snapshot progress logging on node [%s]",
+            clusterService.state().nodes().getLocalNodeId()
+        ));
     }
 
     /**
@@ -124,11 +132,11 @@ public class SnapshotShutdownProgressTracker {
                 Finished signalling shard snapshots to pause [{}]. \
                 [Phase 1 of 2] Number shard snapshots running on the data node (have not yet observed pause signal) [{}]. \
                 [Phase 2 of 2] Number shard snapshots finished but waiting for master node to respond to status update request [{}] \
-                Shard snapshot completion stats since shutdown began: Done [{}]; Failed [{}]; Aborted [{}]; Paused [{}] \
+                Shard snapshot completion stats since shutdown began: Done [{}]; Failed [{}]; Aborted [{}]; Paused [{}]\
                 """,
             clusterService.state().nodes().getLocalNodeId(),
-            shutdownStartMillis,
-            shutdownFinishedSignallingPausingMillis,
+            new Timestamp(shutdownStartMillis),
+            new Timestamp(shutdownFinishedSignallingPausingMillis),
             numberOfShardSnapshotsInProgressOnDataNode.get(),
             shardSnapshotRequests.size(),
             doneCount.get(),
@@ -163,8 +171,13 @@ public class SnapshotShutdownProgressTracker {
      * pause.
      */
     public void onClusterStatePausingSetForAllShardSnapshots() {
+        assert this.shutdownStartMillis != -1;
         this.shutdownFinishedSignallingPausingMillis = threadPool.relativeTimeInMillis();
-        logger.trace("Pause signals have been set for all shard snapshots on this data node");
+        logger.trace(
+            String.format(
+                "Pause signals have been set for all shard snapshots on data node [%s]", clusterService.state().nodes().getLocalNodeId()
+            )
+        );
     }
 
     /**

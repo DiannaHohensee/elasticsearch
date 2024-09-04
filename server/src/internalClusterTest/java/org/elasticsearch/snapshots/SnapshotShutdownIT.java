@@ -8,6 +8,7 @@
 
 package org.elasticsearch.snapshots;
 
+import org.apache.logging.log4j.Level;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionResponse;
@@ -18,6 +19,7 @@ import org.elasticsearch.action.admin.cluster.configuration.TransportClearVoting
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
 import org.elasticsearch.action.admin.cluster.snapshots.get.GetSnapshotsRequest;
 import org.elasticsearch.action.admin.cluster.snapshots.get.GetSnapshotsResponse;
+import org.elasticsearch.action.admin.indices.stats.ShardStats;
 import org.elasticsearch.action.support.ActionTestUtils;
 import org.elasticsearch.action.support.SubscribableListener;
 import org.elasticsearch.cluster.ClusterState;
@@ -28,23 +30,32 @@ import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.NodesShutdownMetadata;
 import org.elasticsearch.cluster.metadata.SingleNodeShutdownMetadata;
 import org.elasticsearch.cluster.routing.ShardRoutingState;
+import org.elasticsearch.cluster.routing.allocation.decider.DiskThresholdDeciderIT;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.unit.ByteSizeUnit;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.core.TimeValue;
+import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.test.ClusterServiceUtils;
+import org.elasticsearch.test.MockLog;
+import org.elasticsearch.test.junit.annotations.TestLogging;
 import org.elasticsearch.test.transport.MockTransportService;
 
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import static org.elasticsearch.snapshots.SnapshotShutdownProgressTracker.SNAPSHOT_PROGRESS_DURING_SHUTDOWN_INTERVAL_TIME_SETTING;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
@@ -54,9 +65,180 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
 
     private static final String REQUIRE_NODE_NAME_SETTING = IndexMetadata.INDEX_ROUTING_REQUIRE_GROUP_PREFIX + "._name";
 
+
+    private MockLog mockLog;
+
+    public void setUp() throws Exception {
+        super.setUp();
+        mockLog = MockLog.capture(SnapshotShutdownProgressTracker.class);
+    }
+
+    private void resetMockLog() {
+        mockLog.close();
+        mockLog = MockLog.capture(SnapshotShutdownProgressTracker.class);
+    }
+
+    public void tearDown() throws Exception {
+        mockLog.close();
+        super.tearDown();
+    }
+
     @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
         return CollectionUtils.appendToCopy(super.nodePlugins(), MockTransportService.TestPlugin.class);
+    }
+
+    /**
+     * Index documents until all the shards are at least WATERMARK_BYTES in size, and return the one with the smallest size
+     */
+    private void createReasonableSizedShards(final String indexName) throws InterruptedException {
+        final long WATERMARK_BYTES = new ByteSizeValue(2, ByteSizeUnit.KB).getBytes();
+
+        while (true) {
+            indexRandom(true, indexName, scaledRandomIntBetween(100, 10000));
+            forceMerge();
+            refresh();
+
+            final ShardStats[] shardStates = indicesAdmin().prepareStats(indexName)
+                .clear()
+                .setStore(true)
+                .setTranslog(true)
+                .get()
+                .getShards();
+
+            var smallestShardSize = Arrays.stream(shardStates)
+                .mapToLong(it -> it.getStats().getStore().sizeInBytes())
+                .min()
+                .orElseThrow(() -> new AssertionError("no shards"));
+
+            if (smallestShardSize > WATERMARK_BYTES) {
+                return;
+            }
+        }
+    }
+
+    @TestLogging(
+        value = "org.elasticsearch.snapshots.SnapshotShutdownProgressTracker:TRACE",
+        reason = "Testing SnapshotShutdownProgressTracker's progress, which is reported at the TRACE logging level"
+    )
+    public void testMyTracker() throws Exception {
+        final var repoName = randomIdentifier();
+        final int numShards = randomIntBetween(1, 10);
+        createRepository(repoName, "mock");
+
+        // TODO: create multiple shards.
+        // TODO: why only 1 shard tracked in log messages??? Plugged in wrong????
+        // would be good to randomize this in the other tests, too, if test infra doesn't implicitly
+
+        // create another index on another node which will be blocked (remain in state INIT) throughout
+        final var otherNode = internalCluster().startDataOnlyNode();
+        final var otherIndex = randomIdentifier();
+        createIndexWithContent(otherIndex, indexSettings(numShards, 0).put(REQUIRE_NODE_NAME_SETTING, otherNode).build());
+        blockDataNode(repoName, otherNode);
+
+        final var nodeForRemoval = internalCluster().startDataOnlyNode(
+            Settings.builder().put(SNAPSHOT_PROGRESS_DURING_SHUTDOWN_INTERVAL_TIME_SETTING.getKey(), TimeValue.timeValueMillis(200)).build()
+        );
+        final String nodeForRemovalId = internalCluster().getInstance(NodeEnvironment.class, nodeForRemoval).nodeId();
+        final var indexName = randomIdentifier();
+        createIndexWithContent(indexName, indexSettings(numShards, 0).put(REQUIRE_NODE_NAME_SETTING, nodeForRemoval).build());
+        createReasonableSizedShards(indexName);
+
+        final var clusterService = internalCluster().getCurrentMasterNodeInstance(ClusterService.class);
+        final var snapshotFuture = startFullSnapshotBlockedOnDataNode(randomIdentifier(), repoName, nodeForRemoval);
+        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName, numShards);
+        addUnassignedShardsWatcher(clusterService, indexName);
+
+        waitForBlock(otherNode, repoName);
+
+        logger.info("---> nodeForRemovalId: " + nodeForRemovalId);
+        mockLog.addExpectation(
+            new MockLog.SeenEventExpectation(
+                "failed to find SnapshotShutdownProgressTracker start log message",
+                SnapshotShutdownProgressTracker.class.getCanonicalName(),
+                Level.TRACE,
+                "Starting shutdown snapshot progress logging on node [" + nodeForRemovalId + "]"
+            )
+        );
+        mockLog.addExpectation(
+            new MockLog.SeenEventExpectation(
+                "SnapshotShutdownProgressTracker pause set log message",
+                SnapshotShutdownProgressTracker.class.getCanonicalName(),
+                Level.TRACE,
+                "Pause signals have been set for all shard snapshots on data node [" + nodeForRemovalId + "]"
+            )
+        );
+
+        putShutdownForRemovalMetadata(nodeForRemoval, clusterService);
+
+        // Check that the SnapshotShutdownProgressTracker starts logging after the shutdown metadata is set.
+        assertBusy(mockLog::assertAllExpectationsMatched);
+        resetMockLog();
+
+        mockLog.addExpectation(
+            new MockLog.SeenEventExpectation(
+                "SnapshotShutdownProgressTracker shard snapshot has paused log message",
+                SnapshotShutdownProgressTracker.class.getCanonicalName(),
+                Level.INFO,
+                "Current active shard snapshot stats on data node [" + nodeForRemovalId + "]*Paused [" + numShards + "]"
+            )
+        );
+        unblockNode(repoName, nodeForRemoval); // lets the shard snapshot abort, which frees up the shard to move
+        safeAwait(snapshotPausedListener);
+
+        // Check that the SnapshotShutdownProgressTracker observed the paused snapshot.
+        assertBusy(mockLog::assertAllExpectationsMatched);
+        resetMockLog();
+
+        // adjust the allocation filter so that the shard moves
+        updateIndexSettings(Settings.builder().putNull(REQUIRE_NODE_NAME_SETTING), indexName);
+
+        // wait for the target shard snapshot to succeed
+        safeAwait(
+            ClusterServiceUtils.addTemporaryStateListener(
+                clusterService,
+                state -> SnapshotsInProgress.get(state)
+                    .asStream()
+                    .allMatch(
+                        e -> e.shards()
+                            .entrySet()
+                            .stream()
+                            .anyMatch(
+                                shardEntry -> shardEntry.getKey().getIndexName().equals(indexName)
+                                    && switch (shardEntry.getValue().state()) {
+                                    case INIT, PAUSED_FOR_NODE_REMOVAL -> false;
+                                    case SUCCESS -> true;
+                                    case FAILED, ABORTED, MISSING, QUEUED, WAITING -> throw new AssertionError(shardEntry.toString());
+                                }
+                            )
+                    )
+            )
+        );
+
+        unblockAllDataNodes(repoName);
+
+        // snapshot completes when the node vacates even though it hasn't been removed yet
+        assertEquals(SnapshotState.SUCCESS, snapshotFuture.get(10, TimeUnit.SECONDS).getSnapshotInfo().state());
+
+        logger.info("~~~TEST 1 nodeForRemovalId: " + nodeForRemovalId);
+        mockLog.addExpectation(
+            new MockLog.SeenEventExpectation(
+                "SnapshotShutdownProgressTracker cancelled log message",
+                SnapshotShutdownProgressTracker.class.getCanonicalName(),
+                Level.TRACE,
+                "Cancelling shutdown snapshot progress logging on node [" + nodeForRemovalId + "]"
+            )
+        );
+        logger.info("~~~TEST 2");
+
+        clearShutdownMetadata(clusterService);
+        logger.info("~~~TEST 3");
+
+        // Check that the SnapshotShutdownProgressTracker logging was cancelled.
+        assertBusy(mockLog::assertAllExpectationsMatched);
+        logger.info("~~~TEST 4");
+        resetMockLog();
+        logger.info("~~~TEST 5");
     }
 
     public void testRestartNodeDuringSnapshot() throws Exception {
@@ -116,7 +298,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
 
         final var clusterService = internalCluster().getCurrentMasterNodeInstance(ClusterService.class);
         final var snapshotFuture = startFullSnapshotBlockedOnDataNode(randomIdentifier(), repoName, originalNode);
-        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName);
+        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName, 1);
         addUnassignedShardsWatcher(clusterService, indexName);
 
         updateIndexSettings(Settings.builder().putNull(REQUIRE_NODE_NAME_SETTING), indexName);
@@ -145,7 +327,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
 
         final var clusterService = internalCluster().getCurrentMasterNodeInstance(ClusterService.class);
         final var snapshotFuture = startFullSnapshotBlockedOnDataNode(randomIdentifier(), repoName, originalNode);
-        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName);
+        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName, 1);
         addUnassignedShardsWatcher(clusterService, indexName);
 
         final var snapshotStatusUpdateBarrier = new CyclicBarrier(2);
@@ -258,7 +440,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
 
         final var clusterService = internalCluster().getCurrentMasterNodeInstance(ClusterService.class);
         final var snapshotFuture = startFullSnapshotBlockedOnDataNode(randomIdentifier(), repoName, nodeForRemoval);
-        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName);
+        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName, 1);
         addUnassignedShardsWatcher(clusterService, indexName);
 
         waitForBlock(otherNode, repoName);
@@ -314,7 +496,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
 
         final var clusterService = internalCluster().getCurrentMasterNodeInstance(ClusterService.class);
         final var snapshotFuture = startFullSnapshotBlockedOnDataNode(randomIdentifier(), repoName, primaryNode);
-        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName);
+        final var snapshotPausedListener = createSnapshotPausedListener(clusterService, repoName, indexName, 1);
         addUnassignedShardsWatcher(clusterService, indexName);
 
         putShutdownForRemovalMetadata(primaryNode, clusterService);
@@ -411,7 +593,8 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
     private static SubscribableListener<Void> createSnapshotPausedListener(
         ClusterService clusterService,
         String repoName,
-        String indexName
+        String indexName,
+        int numShards
     ) {
         return ClusterServiceUtils.addTemporaryStateListener(clusterService, state -> {
             final var entriesForRepo = SnapshotsInProgress.get(state).forRepo(repoName);
@@ -428,10 +611,17 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
                 .stream()
                 .flatMap(e -> e.getKey().getIndexName().equals(indexName) ? Stream.of(e.getValue()) : Stream.of())
                 .toList();
-            assertThat(shardSnapshotStatuses, hasSize(1));
-            final var shardState = shardSnapshotStatuses.iterator().next().state();
-            assertThat(shardState, oneOf(SnapshotsInProgress.ShardState.INIT, SnapshotsInProgress.ShardState.PAUSED_FOR_NODE_REMOVAL));
-            return shardState == SnapshotsInProgress.ShardState.PAUSED_FOR_NODE_REMOVAL;
+            assertThat(shardSnapshotStatuses, hasSize(numShards));
+            for (var shardStatus : shardSnapshotStatuses) {
+                assertThat(
+                    shardStatus.state(),
+                    oneOf(SnapshotsInProgress.ShardState.INIT, SnapshotsInProgress.ShardState.PAUSED_FOR_NODE_REMOVAL)
+                );
+                if (shardStatus.state() == SnapshotsInProgress.ShardState.INIT) {
+                    return false;
+                }
+            }
+            return true;
         });
     }
 
@@ -447,7 +637,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
         });
     }
 
-    private static void putShutdownForRemovalMetadata(String nodeName, ClusterService clusterService) {
+    private void putShutdownForRemovalMetadata(String nodeName, ClusterService clusterService) {
         safeAwait((ActionListener<Void> listener) -> putShutdownForRemovalMetadata(clusterService, nodeName, listener));
     }
 
@@ -470,7 +660,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
         });
     }
 
-    private static void putShutdownForRemovalMetadata(ClusterService clusterService, String nodeName, ActionListener<Void> listener) {
+    private void putShutdownForRemovalMetadata(ClusterService clusterService, String nodeName, ActionListener<Void> listener) {
         // not testing REPLACE just because it requires us to specify the replacement node
         final var shutdownType = randomFrom(SingleNodeShutdownMetadata.Type.REMOVE, SingleNodeShutdownMetadata.Type.SIGTERM);
         final var shutdownMetadata = SingleNodeShutdownMetadata.builder()
@@ -487,7 +677,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
             .addListener(listener);
     }
 
-    private static void putShutdownMetadata(
+    private void putShutdownMetadata(
         ClusterService clusterService,
         SingleNodeShutdownMetadata.Builder shutdownMetadataBuilder,
         String nodeName,
@@ -497,6 +687,7 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
             @Override
             public ClusterState execute(ClusterState currentState) {
                 final var nodeId = currentState.nodes().resolveNode(nodeName).getId();
+                logger.info("~~~TEST putShutdownMetadata::execute adding shutdown to nodeId: " + nodeId);
                 return currentState.copyAndUpdateMetadata(
                     mdb -> mdb.putCustom(
                         NodesShutdownMetadata.TYPE,
@@ -517,10 +708,11 @@ public class SnapshotShutdownIT extends AbstractSnapshotIntegTestCase {
         });
     }
 
-    private static void clearShutdownMetadata(ClusterService clusterService) {
+    private void clearShutdownMetadata(ClusterService clusterService) {
         safeAwait(listener -> clusterService.submitUnbatchedStateUpdateTask("remove restart marker", new ClusterStateUpdateTask() {
             @Override
             public ClusterState execute(ClusterState currentState) {
+                logger.info("~~~TEST clearShutdownMetadata::execute clearing all shutdown");
                 return currentState.copyAndUpdateMetadata(mdb -> mdb.putCustom(NodesShutdownMetadata.TYPE, NodesShutdownMetadata.EMPTY));
             }
 

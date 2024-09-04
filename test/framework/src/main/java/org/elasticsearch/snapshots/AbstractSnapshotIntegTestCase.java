@@ -632,7 +632,8 @@ public abstract class AbstractSnapshotIntegTestCase extends ESIntegTestCase {
         logger.info("--> creating index [{}]", indexName);
         createIndex(indexName, indexSettings);
         ensureGreen(indexName);
-        indexDoc(indexName, "some_id", "foo", "bar");
+        indexRandomDocs(indexName, 20);
+//        indexDoc(indexName, "some_id", "foo", "bar");
     }
 
     protected ActionFuture<AcknowledgedResponse> startDeleteSnapshot(String repoName, String snapshotName) {

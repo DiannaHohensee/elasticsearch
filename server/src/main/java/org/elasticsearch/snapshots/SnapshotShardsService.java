@@ -20,6 +20,8 @@ import org.elasticsearch.cluster.ClusterStateListener;
 import org.elasticsearch.cluster.SnapshotsInProgress;
 import org.elasticsearch.cluster.SnapshotsInProgress.ShardSnapshotStatus;
 import org.elasticsearch.cluster.SnapshotsInProgress.ShardState;
+import org.elasticsearch.cluster.metadata.NodesShutdownMetadata;
+import org.elasticsearch.cluster.metadata.SingleNodeShutdownMetadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Strings;
@@ -103,7 +105,7 @@ public final class SnapshotShardsService extends AbstractLifecycleComponent impl
         this.transportService = transportService;
         this.clusterService = clusterService;
         this.threadPool = transportService.getThreadPool();
-        this.snapshotShutdownProgressTracker = new SnapshotShutdownProgressTracker(clusterService.state().nodes().getLocalNodeId(), settings, threadPool);
+        this.snapshotShutdownProgressTracker = new SnapshotShutdownProgressTracker(clusterService, settings, threadPool);
         this.remoteFailedRequestDeduplicator = new ResultDeduplicator<>(threadPool.getThreadContext());
         if (DiscoveryNode.canContainData(settings)) {
             // this is only useful on the nodes that can hold data
@@ -134,23 +136,35 @@ public final class SnapshotShardsService extends AbstractLifecycleComponent impl
         try {
             final var currentSnapshots = SnapshotsInProgress.get(event.state());
             final var previousSnapshots = SnapshotsInProgress.get(event.previousState());
-            if (previousSnapshots.equals(currentSnapshots) == false) {
-                final var localNodeId = clusterService.localNode().getId();
 
-                {
-                    // Track when this node enters and leaves shutdown mode because we pause shard snapshots for shutdown.
-                    // The snapshotShutdownProgressTracker will report (via logging) on the progress shard snapshots make
-                    // towards either completing (successfully or otherwise) or pausing.
-                    final var previouslyInShutdownMode = previousSnapshots.isNodeIdForRemoval(localNodeId);
-                    final var currentlyInShutdownMode = currentSnapshots.isNodeIdForRemoval(localNodeId);
-                    if (previouslyInShutdownMode == false && currentlyInShutdownMode) {
-                        snapshotShutdownProgressTracker.onClusterStateAddShutdown();
-                    }
-                    if (previouslyInShutdownMode && currentlyInShutdownMode == false) {
-                        snapshotShutdownProgressTracker.onClusterStateRemoveShutdown();
-                    }
+            // Track when this node enters and leaves shutdown mode because we pause shard snapshots for shutdown.
+            // The snapshotShutdownProgressTracker will report (via logging) on the progress shard snapshots make
+            // towards either completing (successfully or otherwise) or pausing.
+            final var localNodeId = clusterService.localNode().getId();
+            final var previouslyInShutdownMode = previousSnapshots.isNodeIdForRemoval(localNodeId);
+            final var currentlyInShutdownMode = currentSnapshots.isNodeIdForRemoval(localNodeId);
+            boolean localNodeShuttingDown = previouslyInShutdownMode == false && currentlyInShutdownMode;
+            boolean localNodeRemovingShutdown = previouslyInShutdownMode && currentlyInShutdownMode == false;
+
+            if (localNodeShuttingDown) {
+                NodesShutdownMetadata eventShutdownMetadata = event.state().metadata().custom(NodesShutdownMetadata.TYPE);
+                var localNodeInShutdown = eventShutdownMetadata.get(localNodeId, SingleNodeShutdownMetadata.Type.REMOVE);
+                if (localNodeInShutdown != null && localNodeInShutdown.getType().isRemovalType()) {
+                    logger.info("~~~SnapshotShardsService::clusterChanged, yay shutdown removal type");
                 }
+                logger.info("~~~SnapshotShardsService::clusterChanged, source: " + event.source() + " ,nodesDelta(): " + event.nodesDelta());
+                logger.info("~~~SnapshotShardsService::clusterChanged, adding shutdown, previouslyInShutdownMode: "
+                    + previouslyInShutdownMode + ", currentlyInShutdownMode: " + currentlyInShutdownMode);
+                snapshotShutdownProgressTracker.onClusterStateAddShutdown();
+            }
+            if (localNodeRemovingShutdown) {
+                logger.info("~~~SnapshotShardsService::clusterChanged, source: " + event.source() + " ,nodesDelta(): " + event.nodesDelta());
+                logger.info("~~~SnapshotShardsService::clusterChanged, removing shutdown, previouslyInShutdownMode: "
+                    + previouslyInShutdownMode + ", currentlyInShutdownMode: " + currentlyInShutdownMode);
+                snapshotShutdownProgressTracker.onClusterStateRemoveShutdown();
+            }
 
+            if (previousSnapshots.equals(currentSnapshots) == false) {
                 synchronized (shardSnapshots) {
                     // Cancel any snapshots that have been removed from the cluster state.
                     cancelRemoved(currentSnapshots);
@@ -165,8 +179,11 @@ public final class SnapshotShardsService extends AbstractLifecycleComponent impl
                             );
                         }
                     }
-                    snapshotShutdownProgressTracker.onClusterStatePausingSetForAllShardSnapshots();
                 }
+            }
+
+            if (localNodeShuttingDown) {
+                snapshotShutdownProgressTracker.onClusterStatePausingSetForAllShardSnapshots();
             }
 
             String previousMasterNodeId = event.previousState().nodes().getMasterNodeId();
