@@ -11,6 +11,7 @@ package org.elasticsearch.snapshots;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.action.ResultDeduplicator;
+import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
@@ -47,7 +48,7 @@ public class SnapshotShutdownProgressTracker {
 
     private static final Logger logger = LogManager.getLogger(SnapshotShutdownProgressTracker.class);
 
-    private final String localNodeId;
+    private final ClusterService clusterService;
     private final ThreadPool threadPool;
 
     private final ProgressLogger progressLogger = new ProgressLogger();
@@ -86,8 +87,8 @@ public class SnapshotShutdownProgressTracker {
     private final AtomicLong abortedCount = new AtomicLong();
     private final AtomicLong pausedCount = new AtomicLong();
 
-    public SnapshotShutdownProgressTracker(String localNodeId, Settings settings, ThreadPool threadPool) {
-        this.localNodeId = localNodeId;
+    public SnapshotShutdownProgressTracker(ClusterService clusterService, Settings settings, ThreadPool threadPool) {
+        this.clusterService = clusterService;
         this.progressLoggerInterval = SNAPSHOT_PROGRESS_DURING_SHUTDOWN_INTERVAL_TIME_SETTING.get(settings);
         this.threadPool = threadPool;
     }
@@ -125,7 +126,7 @@ public class SnapshotShutdownProgressTracker {
                 [Phase 2 of 2] Number shard snapshots finished but waiting for master node to respond to status update request [{}] \
                 Shard snapshot completion stats since shutdown began: Done [{}]; Failed [{}]; Aborted [{}]; Paused [{}] \
                 """,
-            localNodeId,
+            clusterService.state().nodes().getLocalNodeId(),
             shutdownStartMillis,
             shutdownFinishedSignallingPausingMillis,
             numberOfShardSnapshotsInProgressOnDataNode.get(),

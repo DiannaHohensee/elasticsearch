@@ -10,7 +10,10 @@ package org.elasticsearch.snapshots;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.coordination.Coordinator;
+import org.elasticsearch.cluster.node.DiscoveryNodes;
+import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.Index;
@@ -24,8 +27,23 @@ import org.junit.Before;
 
 import java.util.concurrent.TimeUnit;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 public class SnapshotShutdownProgressTrackerTests extends ESTestCase {
     private static final Logger logger = LogManager.getLogger(SnapshotShutdownProgressTrackerTests.class);
+
+    private final ClusterService mockClusterService = mock(ClusterService.class);
+    private final ClusterState mockClusterState = mock(ClusterState.class);
+    private final DiscoveryNodes mockDiscoveryNodes = mock(DiscoveryNodes.class);
+
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
+        when(mockClusterService.state()).thenReturn(mockClusterState);
+        when(mockClusterState.nodes()).thenReturn(mockDiscoveryNodes);
+        when(mockDiscoveryNodes.getLocalNodeId()).thenReturn("localNodeIdForTest");
+    }
 
     final Settings settings = Settings.builder()
         .put(
@@ -61,9 +79,8 @@ public class SnapshotShutdownProgressTrackerTests extends ESTestCase {
             });
         }
     }
-
     public void testTrackerLogsStats() throws Exception {
-        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker("localNodeIdForTest", settings, testThreadPool);
+        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker(mockClusterService, settings, testThreadPool);
 
         try (var mockLog = MockLog.capture(Coordinator.class, SnapshotShutdownProgressTracker.class)) {
             mockLog.addExpectation(
@@ -102,7 +119,7 @@ public class SnapshotShutdownProgressTrackerTests extends ESTestCase {
     }
 
     public void testTrackerPauseTimestamp() throws Exception {
-        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker("localNodeIdForTest", settings, testThreadPool);
+        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker(mockClusterService, settings, testThreadPool);
 
         try (var mockLog = MockLog.capture(Coordinator.class, SnapshotShutdownProgressTracker.class)) {
             mockLog.addExpectation(
@@ -126,7 +143,7 @@ public class SnapshotShutdownProgressTrackerTests extends ESTestCase {
     }
 
     public void testTrackerRequestsToMaster() throws Exception {
-        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker("localNodeIdForTest", settings, testThreadPool);
+        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker(mockClusterService, settings, testThreadPool);
         Snapshot snapshot = new Snapshot("repositoryName", new SnapshotId("snapshotName", "snapshotUUID"));
         ShardId shardId = new ShardId(new Index("indexName", "indexUUID"), 0);
 
@@ -170,7 +187,7 @@ public class SnapshotShutdownProgressTrackerTests extends ESTestCase {
     }
 
     public void testTrackerClearShutdown() throws Exception {
-        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker("localNodeIdForTest", settings, testThreadPool);
+        SnapshotShutdownProgressTracker tracker = new SnapshotShutdownProgressTracker(mockClusterService, settings, testThreadPool);
 
         try (var mockLog = MockLog.capture(Coordinator.class, SnapshotShutdownProgressTracker.class)) {
             mockLog.addExpectation(
