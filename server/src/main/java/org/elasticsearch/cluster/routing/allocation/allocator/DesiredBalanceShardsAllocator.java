@@ -68,6 +68,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     private volatile boolean resetCurrentDesiredBalance = false;
     private final Set<String> processedNodeShutdowns = new HashSet<>();
     private final DesiredBalanceMetrics desiredBalanceMetrics;
+    private final AllocationBalancerRoundSummaryService balancerRoundSummaryService;
 
     // stats
     protected final CounterMetric computationsSubmitted = new CounterMetric();
@@ -112,6 +113,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
         NodeAllocationStatsAndWeightsCalculator nodeAllocationStatsAndWeightsCalculator
     ) {
         this.desiredBalanceMetrics = new DesiredBalanceMetrics(telemetryProvider.getMeterRegistry());
+        this.balancerRoundSummaryService = new AllocationBalancerRoundSummaryService(threadPool);
         this.delegateAllocator = delegateAllocator;
         this.threadPool = threadPool;
         this.reconciler = reconciler;
@@ -309,6 +311,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
                     logger.debug("Desired balance updated for [{}]", newDesiredBalance.lastConvergedIndex());
                 }
                 computedShardMovements.inc(DesiredBalance.shardMovements(oldDesiredBalance, newDesiredBalance));
+                // TODO (Dianna): new summary service plug-in point.
                 break;
             }
         }
