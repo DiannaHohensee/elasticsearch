@@ -28,6 +28,7 @@ public class AllocationBalancerRoundSummaryService {
      * The cluster event that initiated a rebalancing round. This will tell us why the balancer is doing some amount of rebalancing work.
      */
     enum ClusterRebalancingEvent {
+        // ComputationFinishReason.STOP_EARLY is an event -- maybe can track it back to the cause.
         RerouteCommand,
         IndexCreation,
         IndexDeletion,

@@ -60,7 +60,12 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     private final DesiredBalanceComputer desiredBalanceComputer;
     private final DesiredBalanceReconciler desiredBalanceReconciler;
     private final ContinuousComputation<DesiredBalanceInput> desiredBalanceComputation;
-    private final PendingListenersQueue queue;
+    private final PendingListenersQueue pendingListenersQueue;
+    /**
+     * Each new input to the {@link #desiredBalanceComputation} (AKA a request for the balancer to run) is given a sequence number. The
+     * balancer runs asynchronously and many inputs may be queued: the async thread will choose the input with the latest sequence number
+     * TODO (Dianna) I still don't follow how this is used, exactly.
+     */
     private final AtomicLong indexGenerator = new AtomicLong(-1);
     private final ConcurrentLinkedQueue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves = new ConcurrentLinkedQueue<>();
     private final MasterServiceTaskQueue<ReconcileDesiredBalanceTask> masterServiceTaskQueue;
@@ -201,7 +206,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
                 return "DesiredBalanceShardsAllocator#allocate";
             }
         };
-        this.queue = new PendingListenersQueue();
+        this.pendingListenersQueue = new PendingListenersQueue();
         this.masterServiceTaskQueue = clusterService.createTaskQueue(
             "reconcile-desired-balance",
             Priority.URGENT,
@@ -237,7 +242,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
 
         var index = indexGenerator.incrementAndGet();
         logger.debug("Executing allocate for [{}]", index);
-        queue.add(index, listener);
+        pendingListenersQueue.add(index, listener);
         // This can only run on master, so unset not-master if exists
         if (currentDesiredBalanceRef.compareAndSet(DesiredBalance.NOT_MASTER, DesiredBalance.BECOME_MASTER_INITIAL)) {
             logger.debug("initialized desired balance for becoming master");
@@ -381,7 +386,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     private void onNoLongerMaster() {
         if (indexGenerator.getAndSet(-1) != -1) {
             currentDesiredBalanceRef.set(DesiredBalance.NOT_MASTER);
-            queue.completeAllAsNotMaster();
+            pendingListenersQueue.completeAllAsNotMaster();
             pendingDesiredBalanceMoves.clear();
             desiredBalanceReconciler.clear();
             desiredBalanceMetrics.zeroAllMetrics();
@@ -427,11 +432,11 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
             TaskContext<ReconcileDesiredBalanceTask> latest
         ) {
             try (var ignored = batchExecutionContext.dropHeadersContext()) {
-                var newState = reconciler.apply(
+                var newState = reconciler.apply(       ///////// Callback to AllocationService.executeWithRoutingAllocation
                     batchExecutionContext.initialState(),
                     createReconcileAllocationAction(latest.getTask().desiredBalance)
                 );
-                latest.success(() -> queue.complete(latest.getTask().desiredBalance.lastConvergedIndex()));
+                latest.success(() -> pendingListenersQueue.complete(latest.getTask().desiredBalance.lastConvergedIndex()));
                 return newState;
             }
         }
@@ -450,7 +455,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
 
     // only for tests - in production, this happens after reconciliation
     protected final void completeToLastConvergedIndex() {
-        queue.complete(currentDesiredBalanceRef.get().lastConvergedIndex());
+        pendingListenersQueue.complete(currentDesiredBalanceRef.get().lastConvergedIndex());
     }
 
     private void recordTime(CounterMetric metric, Runnable action) {
