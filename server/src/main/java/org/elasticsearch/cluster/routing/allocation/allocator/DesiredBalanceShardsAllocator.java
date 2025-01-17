@@ -87,7 +87,13 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     private final AtomicReference<DesiredBalance> currentDesiredBalanceRef = new AtomicReference<>(DesiredBalance.NOT_MASTER);
     private volatile boolean resetCurrentDesiredBalance = false;
     private final Set<String> processedNodeShutdowns = new HashSet<>();
+    // TODO (Dianna): how do I update this? Do I shove the summaryService into it, so that it can pull metrics??? Or should the
+    // summaryService push the metrics??
     private final DesiredBalanceMetrics desiredBalanceMetrics;
+    /**
+     * Manages balancer round results in order to report metrics on the balancer activity in a configurable manner.
+     */
+    private final AllocationBalancingRoundSummaryService balancerRoundSummaryService;
 
     // stats
     protected final CounterMetric computationsSubmitted = new CounterMetric();
@@ -132,6 +138,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
         NodeAllocationStatsAndWeightsCalculator nodeAllocationStatsAndWeightsCalculator
     ) {
         this.desiredBalanceMetrics = new DesiredBalanceMetrics(telemetryProvider.getMeterRegistry());
+        this.balancerRoundSummaryService = new AllocationBalancingRoundSummaryService();
         this.delegateAllocator = delegateAllocator;
         this.threadPool = threadPool;
         this.reconciler = reconciler;
@@ -168,7 +175,8 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
                             initialDesiredBalance,
                             desiredBalanceInput,
                             pendingDesiredBalanceMoves,
-                            this::isFresh
+                            this::isFresh,
+                            threadPool.relativeTimeInMillisSupplier()
                         )
                     )
                 );
@@ -320,6 +328,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
             }
 
             if (currentDesiredBalanceRef.compareAndSet(oldDesiredBalance, newDesiredBalance)) {
+                balancerRoundSummaryService.addBalancerRoundSummary(calculateBalancingRoundSummary(oldDesiredBalance, newDesiredBalance));
                 if (logger.isTraceEnabled()) {
                     var diff = DesiredBalance.hasChanges(oldDesiredBalance, newDesiredBalance)
                         ? "Diff: " + DesiredBalance.humanReadableDiff(oldDesiredBalance, newDesiredBalance)
@@ -332,6 +341,17 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
                 break;
             }
         }
+    }
+
+    /**
+     * Summarizes the work required to move from an old to new desired balance shard allocation.
+     */
+    private BalancingRoundSummary calculateBalancingRoundSummary(
+        DesiredBalance oldDesiredBalance,
+        DesiredBalance newDesiredBalance
+    ) {
+        // TODO (ES-10341): this is a WIP.
+        return newDesiredBalance.balancingRoundSummaryBuilder().build();
     }
 
     protected void submitReconcileTask(DesiredBalance desiredBalance) {

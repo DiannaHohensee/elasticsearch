@@ -238,7 +238,7 @@ public interface MeterRegistry {
      * @param unit the unit (bytes, sec, hour)
      * @return the registered meter.
      */
-    LongHistogram registerLongHistogram(String name, String description, String unit);
+    LongHistogram registerLongHistogram(String name, String description, String unit);   //////
 
     /**
      * Retrieved a previously registered {@link LongHistogram}.

@@ -71,6 +71,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 
 import static org.elasticsearch.cluster.routing.AllocationId.newInitializing;
@@ -409,9 +410,11 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     DesiredBalance previousDesiredBalance,
                     DesiredBalanceInput desiredBalanceInput,
                     Queue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves,
-                    Predicate<DesiredBalanceInput> isFresh
+                    Predicate<DesiredBalanceInput> isFresh,
+                    LongSupplier relativeTimeSupplier
                 ) {
-                    return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh);
+                    return super.compute(
+                        previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
                 }
 
                 @Override
@@ -536,7 +539,8 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     DesiredBalance previousDesiredBalance,
                     DesiredBalanceInput desiredBalanceInput,
                     Queue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves,
-                    Predicate<DesiredBalanceInput> isFresh
+                    Predicate<DesiredBalanceInput> isFresh,
+                    LongSupplier relativeTimeSupplier
                 ) {
                     try {
                         // simulate slow balance computation
@@ -544,7 +548,8 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     } catch (InterruptedException e) {
                         throw new AssertionError(e);
                     }
-                    return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh);
+                    return super.compute(
+                        previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
                 }
             },
             reconcileAction,
@@ -640,7 +645,8 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     DesiredBalance previousDesiredBalance,
                     DesiredBalanceInput desiredBalanceInput,
                     Queue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves,
-                    Predicate<DesiredBalanceInput> isFresh
+                    Predicate<DesiredBalanceInput> isFresh,
+                    LongSupplier relativeTimeSupplier
                 ) {
                     try {
                         // fake slow balance computation
@@ -648,7 +654,7 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     } catch (InterruptedException e) {
                         throw new AssertionError(e);
                     }
-                    return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh);
+                    return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
                 }
             },
             reconcileAction,
@@ -732,10 +738,11 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                 DesiredBalance previousDesiredBalance,
                 DesiredBalanceInput desiredBalanceInput,
                 Queue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves,
-                Predicate<DesiredBalanceInput> isFresh
+                Predicate<DesiredBalanceInput> isFresh,
+                LongSupplier relativeTimeSupplier
             ) {
                 lastComputationInput.set(previousDesiredBalance);
-                return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh);
+                return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
             }
         };
 
@@ -938,7 +945,8 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     DesiredBalance previousDesiredBalance,
                     DesiredBalanceInput desiredBalanceInput,
                     Queue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves,
-                    Predicate<DesiredBalanceInput> isFresh
+                    Predicate<DesiredBalanceInput> isFresh,
+                    LongSupplier relativeTimeSupplier
                 ) {
                     assertThat(previousDesiredBalance, sameInstance(DesiredBalance.BECOME_MASTER_INITIAL));
                     return new DesiredBalance(desiredBalanceInput.index(), Map.of());

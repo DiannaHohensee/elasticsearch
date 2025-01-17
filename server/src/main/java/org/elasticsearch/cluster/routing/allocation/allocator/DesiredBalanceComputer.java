@@ -38,9 +38,11 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
+import static org.elasticsearch.cluster.routing.allocation.allocator.BalancingRoundSummaryBuilder.EMPTY_SUMMARY_BUILDER;
 
 /**
  * Holds the desired balance and updates it as the cluster evolves.
@@ -87,7 +89,8 @@ public class DesiredBalanceComputer {
         DesiredBalance previousDesiredBalance,
         DesiredBalanceInput desiredBalanceInput,
         Queue<List<MoveAllocationCommand>> pendingDesiredBalanceMoves,
-        Predicate<DesiredBalanceInput> isFresh
+        Predicate<DesiredBalanceInput> isFresh,
+        LongSupplier relativeTimeSupplier
     ) {
         if (logger.isTraceEnabled()) {
             logger.trace(
@@ -102,6 +105,8 @@ public class DesiredBalanceComputer {
             logger.debug("Recomputing desired balance for [{}]", desiredBalanceInput.index());
         }
 
+        final var balancingRoundSummaryBuilder = new BalancingRoundSummaryBuilder();
+        balancingRoundSummaryBuilder.setEventStartTime(relativeTimeSupplier.getAsLong());
         final var routingAllocation = desiredBalanceInput.routingAllocation().mutableCloneForSimulation();
         final var routingNodes = routingAllocation.routingNodes();
         final var knownNodeIds = routingNodes.getAllNodeIds();
@@ -111,7 +116,7 @@ public class DesiredBalanceComputer {
         DesiredBalance.ComputationFinishReason finishReason = DesiredBalance.ComputationFinishReason.CONVERGED;
 
         if (routingNodes.size() == 0) {
-            return new DesiredBalance(desiredBalanceInput.index(), Map.of(), Map.of(), finishReason);
+            return new DesiredBalance(desiredBalanceInput.index(), Map.of(), Map.of(), finishReason, EMPTY_SUMMARY_BUILDER);
         }
 
         // we assume that all ongoing recoveries will complete
@@ -406,7 +411,9 @@ public class DesiredBalanceComputer {
         }
 
         long lastConvergedIndex = hasChanges ? previousDesiredBalance.lastConvergedIndex() : desiredBalanceInput.index();
-        return new DesiredBalance(lastConvergedIndex, assignments, routingNodes.getBalanceWeightStatsPerNode(), finishReason);
+        balancingRoundSummaryBuilder.setEventEndTime(relativeTimeSupplier.getAsLong());
+        return new DesiredBalance(
+            lastConvergedIndex, assignments, routingNodes.getBalanceWeightStatsPerNode(), finishReason, balancingRoundSummaryBuilder);
     }
 
     // visible for testing
