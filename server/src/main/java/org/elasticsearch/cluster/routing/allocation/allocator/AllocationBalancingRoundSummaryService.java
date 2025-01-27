@@ -45,15 +45,15 @@ public class AllocationBalancingRoundSummaryService {
     public static final Setting<TimeValue> BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING = Setting.timeSetting(
         "cluster.routing.allocation.desired_balance.balanace_round_summaries_interval",
         TimeValue.timeValueSeconds(10),
-        TimeValue.MINUS_ONE,
+        TimeValue.ZERO,
         Setting.Property.NodeScope,
         Setting.Property.Dynamic
     );
 
     private static final Logger logger = LogManager.getLogger(AllocationBalancingRoundSummaryService.class);
     private final ThreadPool threadPool;
-    private volatile boolean enableBalancerRoundSummaries = false;
-    private volatile TimeValue summaryReportInterval = TimeValue.MINUS_ONE;
+    private volatile boolean enableBalancerRoundSummaries;
+    private volatile TimeValue summaryReportInterval;
 
     /**
      * A concurrency-safe list of balancing round summaries. Balancer rounds are run and added here serially, so the queue will naturally
@@ -66,13 +66,18 @@ public class AllocationBalancingRoundSummaryService {
 
     public AllocationBalancingRoundSummaryService(ThreadPool threadPool, ClusterSettings clusterSettings) {
         this.threadPool = threadPool;
+        // Initialize the local setting values to avoid a null access when ClusterSettings#initializeAndWatch is called on each setting:
+        // updating enableBalancerRoundSummaries accesses summaryReportInterval.
+        this.enableBalancerRoundSummaries = clusterSettings.get(ENABLE_BALANCER_ROUND_SUMMARIES_SETTING);
+        this.summaryReportInterval = clusterSettings.get(BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING);
+
         clusterSettings.initializeAndWatch(ENABLE_BALANCER_ROUND_SUMMARIES_SETTING, value -> {
             this.enableBalancerRoundSummaries = value;
             updateBalancingRoundSummaryReporting();
         });
         clusterSettings.initializeAndWatch(BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING, value -> {
+            // The new value will get picked up the next time that the summary report task reschedules itself on the thread pool.
             this.summaryReportInterval = value;
-            updateBalancingRoundSummaryReporting();
         });
     }
 
@@ -82,7 +87,7 @@ public class AllocationBalancingRoundSummaryService {
      * never be drained).
      */
     public void addBalancerRoundSummary(BalancingRoundSummary summary) {
-        if (enableBalancerRoundSummaries == false || summaryReportInterval.millis() < 0) {
+        if (enableBalancerRoundSummaries == false) {
             return;
         }
 
@@ -95,7 +100,7 @@ public class AllocationBalancingRoundSummaryService {
      */
     private void reportSummariesAndThenReschedule() {
         drainAndReportSummaries();
-        rescheduleReporting(this.enableBalancerRoundSummaries, this.summaryReportInterval);
+        rescheduleReporting();
     }
 
     /**
@@ -126,11 +131,8 @@ public class AllocationBalancingRoundSummaryService {
     /**
      * Returns whether reporting is turned on with the given point-in-time summary setting values.
      */
-    private boolean shouldReschedule(boolean enableValue, TimeValue intervalValue) {
-        if (enableValue == false || intervalValue.millis() < 0) {
-            return false;
-        }
-        return true;
+    private boolean shouldReschedule(boolean enableValue) {
+        return enableValue;
     }
 
     /**
@@ -139,10 +141,8 @@ public class AllocationBalancingRoundSummaryService {
      * will only take effect when the periodic task completes and reschedules itself.
      */
     private void updateBalancingRoundSummaryReporting() {
-        var currentEnableValue = this.enableBalancerRoundSummaries;
-        var currentIntervalValue = this.summaryReportInterval;
-        if (shouldReschedule(currentEnableValue, currentIntervalValue)) {
-            startReporting(currentIntervalValue);
+        if (this.enableBalancerRoundSummaries) {
+            startReporting(this.summaryReportInterval);
         } else {
             cancelReporting();
             // Clear the data structure so that we don't retain unnecessary memory.
@@ -161,6 +161,7 @@ public class AllocationBalancingRoundSummaryService {
 
     /**
      * Cancels the future reporting task and resets {@link #scheduledReportFuture} to null.
+     *
      * Note that this is best-effort: cancellation can race with {@link #rescheduleReporting}. But that is okay because the subsequent
      * {@link #rescheduleReporting} will use the latest settings and choose to cancel reporting if appropriate.
      */
@@ -180,11 +181,11 @@ public class AllocationBalancingRoundSummaryService {
     /**
      * Looks at the given setting values and decides whether to schedule another reporting task or cancel reporting now.
      */
-    private void rescheduleReporting(boolean enableValue, TimeValue intervalValue) {
-        if (shouldReschedule(enableValue, intervalValue)) {
+    private void rescheduleReporting() {
+        if (this.enableBalancerRoundSummaries) {
             // It's possible that this races with a concurrent call to cancel reporting, but that's okay. The next rescheduleReporting call
             // will check the latest settings and cancel.
-            scheduleReporting(intervalValue);
+            scheduleReporting(this.summaryReportInterval);
         } else {
             cancelReporting();
         }

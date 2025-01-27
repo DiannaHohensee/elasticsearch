@@ -89,7 +89,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     private final Set<String> processedNodeShutdowns = new HashSet<>();
     private final DesiredBalanceMetrics desiredBalanceMetrics;
     /**
-     * Manages balancer round results in order to report metrics on the balancer activity in a configurable manner.
+     * Manages balancer round results in order to report on the balancer activity in a configurable manner.
      */
     private final AllocationBalancingRoundSummaryService balancerRoundSummaryService;
 

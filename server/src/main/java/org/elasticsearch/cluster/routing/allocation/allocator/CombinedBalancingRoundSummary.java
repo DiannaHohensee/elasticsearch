@@ -14,6 +14,7 @@ import java.util.List;
 /**
  * Holds combined {@link BalancingRoundSummary} results. Essentially holds a list of the balancing events and the summed up changes
  * across all those events: what allocation work was done across some period of time.
+ * TODO: WIP ES-10341
  *
  * Note that each balancing round summary is the difference between, at the time, latest desired balance and the previous desired balance.
  * Each summary represents a step towards the next desired balance, which is based on presuming the previous desired balance is reached. So
