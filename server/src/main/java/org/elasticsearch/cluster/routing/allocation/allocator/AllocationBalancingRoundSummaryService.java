@@ -37,15 +37,14 @@ public class AllocationBalancingRoundSummaryService {
     public static final Setting<Boolean> ENABLE_BALANCER_ROUND_SUMMARIES_SETTING = Setting.boolSetting(
         "cluster.routing.allocation.desired_balance.enable_balancer_round_summaries",
         false,
-        Setting.Property.IndexScope,
-        Setting.Property.PrivateIndex,
-        Setting.Property.NotCopyableOnResize
+        Setting.Property.NodeScope,
+        Setting.Property.Dynamic
     );
 
     /** Controls how frequently in time balancer round summaries are logged. If less than zero, effectively disables reporting. */
     public static final Setting<TimeValue> BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING = Setting.timeSetting(
         "cluster.routing.allocation.desired_balance.balanace_round_summaries_interval",
-        TimeValue.timeValueSeconds(5),
+        TimeValue.timeValueSeconds(10),
         TimeValue.MINUS_ONE,
         Setting.Property.NodeScope,
         Setting.Property.Dynamic
@@ -53,8 +52,8 @@ public class AllocationBalancingRoundSummaryService {
 
     private static final Logger logger = LogManager.getLogger(AllocationBalancingRoundSummaryService.class);
     private final ThreadPool threadPool;
-    private volatile boolean enableBalancerRoundSummaries;
-    private volatile TimeValue summaryReportInterval;
+    private volatile boolean enableBalancerRoundSummaries = false;
+    private volatile TimeValue summaryReportInterval = TimeValue.MINUS_ONE;
 
     /**
      * A concurrency-safe list of balancing round summaries. Balancer rounds are run and added here serially, so the queue will naturally
@@ -79,10 +78,11 @@ public class AllocationBalancingRoundSummaryService {
 
     /**
      * Adds the summary of a balancing round. If summaries are enabled, this will eventually be reported (logging, etc.). If balancer round
-     * summaries are not enabled in the cluster, then the summary is immediately discarded.
+     * summaries are not enabled in the cluster, then the summary is immediately discarded (so as not to fill up a data structure that will
+     * never be drained).
      */
     public void addBalancerRoundSummary(BalancingRoundSummary summary) {
-        if (enableBalancerRoundSummaries == false) {
+        if (enableBalancerRoundSummaries == false || summaryReportInterval.millis() < 0) {
             return;
         }
 
@@ -145,6 +145,8 @@ public class AllocationBalancingRoundSummaryService {
             startReporting(currentIntervalValue);
         } else {
             cancelReporting();
+            // Clear the data structure so that we don't retain unnecessary memory.
+            drainSummaries();
         }
     }
 
@@ -186,6 +188,11 @@ public class AllocationBalancingRoundSummaryService {
         } else {
             cancelReporting();
         }
+    }
+
+    // @VisibleForTesting
+    protected void verifyNumberOfSummaries(int numberOfSummaries) {
+        assert numberOfSummaries == summaries.size();
     }
 
 }
