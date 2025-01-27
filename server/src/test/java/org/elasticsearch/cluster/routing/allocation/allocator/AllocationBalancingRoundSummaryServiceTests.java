@@ -27,18 +27,16 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
     final Settings enabledSummariesSettings = Settings.builder()
         .put(AllocationBalancingRoundSummaryService.ENABLE_BALANCER_ROUND_SUMMARIES_SETTING.getKey(), true)
         .build();
-    final Settings disabledSummariesSettings = Settings.builder()
-        .put(AllocationBalancingRoundSummaryService.ENABLE_BALANCER_ROUND_SUMMARIES_SETTING.getKey(), false)
-        .build();
-    final Settings enabledSummariesButDisabledIntervalSettings = Settings.builder()
+    final Settings emptySettings = Settings.builder().build();
+    final Settings enabledButNegativeIntervalSettings = Settings.builder()
         .put(AllocationBalancingRoundSummaryService.ENABLE_BALANCER_ROUND_SUMMARIES_SETTING.getKey(), true)
         .put(AllocationBalancingRoundSummaryService.BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING.getKey(), TimeValue.MINUS_ONE)
         .build();
 
     ClusterSettings enabledClusterSettings = new ClusterSettings(enabledSummariesSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
-    ClusterSettings disabledClusterSettings = new ClusterSettings(disabledSummariesSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
-    ClusterSettings enabledSummariesButDisabledIntervalClusterSettings = new ClusterSettings(
-        enabledSummariesButDisabledIntervalSettings,
+    ClusterSettings emptyClusterSettings = new ClusterSettings(emptySettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+    ClusterSettings enabledButNegativeIntervalClusterSettings = new ClusterSettings(
+        enabledButNegativeIntervalSettings,
         ClusterSettings.BUILT_IN_CLUSTER_SETTINGS
     );
 
@@ -54,8 +52,12 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
         testThreadPool = deterministicTaskQueue.getThreadPool();
     }
 
-    public void testDisabledService() {
-        var service = new AllocationBalancingRoundSummaryService(testThreadPool, disabledClusterSettings);
+    /**
+     * Test that the service is disabled and no logging occurs when
+     * {@link AllocationBalancingRoundSummaryService#ENABLE_BALANCER_ROUND_SUMMARIES_SETTING} defaults to false.
+     */
+    public void testServiceDisabledByDefault() {
+        var service = new AllocationBalancingRoundSummaryService(testThreadPool, emptyClusterSettings);
 
         try (var mockLog = MockLog.capture(AllocationBalancingRoundSummaryService.class)) {
             /**
@@ -79,12 +81,42 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
         }
     }
 
-    public void testEnableService() {
+    /**
+     * Test that the service is disabled by a negative
+     * {@link AllocationBalancingRoundSummaryService#BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING} despite
+     * {@link AllocationBalancingRoundSummaryService#ENABLE_BALANCER_ROUND_SUMMARIES_SETTING} being set to true.
+     */
+    public void testServiceDisabledWithIntervalIsLessThanZero() {
+        var service = new AllocationBalancingRoundSummaryService(testThreadPool, enabledButNegativeIntervalClusterSettings);
+
+        try (var mockLog = MockLog.capture(AllocationBalancingRoundSummaryService.class)) {
+            /**
+             * Add a summary and check it is not logged.
+             */
+
+            service.addBalancerRoundSummary(new BalancingRoundSummary(50));
+            service.verifyNumberOfSummaries(0); // when summaries are disabled, summaries are not retained when added.
+            mockLog.addExpectation(
+                new MockLog.UnseenEventExpectation(
+                    "Running balancer summary logging",
+                    AllocationBalancingRoundSummaryService.class.getName(),
+                    Level.INFO,
+                    "Balancing round summaries:*"
+                )
+            );
+
+            deterministicTaskQueue.runAllRunnableTasks();
+            mockLog.awaitAllExpectationsMatched();
+            service.verifyNumberOfSummaries(0);
+        }
+    }
+
+    public void testEnabledService() {
         var service = new AllocationBalancingRoundSummaryService(testThreadPool, enabledClusterSettings);
 
         try (var mockLog = MockLog.capture(AllocationBalancingRoundSummaryService.class)) {
             /**
-             * Add a summary and check it is logged.
+             * Add a summary and check the service logs a report on it.
              */
 
             service.addBalancerRoundSummary(new BalancingRoundSummary(50));
@@ -125,7 +157,10 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
         }
     }
 
-    public void testCombineSummaries() {
+    /**
+     * The service should combine multiple summaries together into a single report when multiple summaries were added since the last report.
+     */
+    public void testCombinedSummary() {
         var service = new AllocationBalancingRoundSummaryService(testThreadPool, enabledClusterSettings);
 
         try (var mockLog = MockLog.capture(AllocationBalancingRoundSummaryService.class)) {
@@ -148,6 +183,9 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
         }
     }
 
+    /**
+     * The service shouldn't log anything when there haven't been any summaries added since the last report.
+     */
     public void testNoSummariesToReport() {
         var service = new AllocationBalancingRoundSummaryService(testThreadPool, enabledClusterSettings);
 
@@ -192,9 +230,31 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
         }
     }
 
+    /**
+     * Test that the service is disabled by setting {@link AllocationBalancingRoundSummaryService#ENABLE_BALANCER_ROUND_SUMMARIES_SETTING}
+     * to false.
+     */
     public void testEnableAndThenDisableService() {
-        ClusterSettings clusterSettings = new ClusterSettings(enabledSummariesSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        // Disable by setting
+        startWithEnabledServiceAndThenUpdateSettingToDisable(
+            Settings.builder().put(AllocationBalancingRoundSummaryService.ENABLE_BALANCER_ROUND_SUMMARIES_SETTING.getKey(), false).build()
+        );
+    }
 
+    /**
+     * Test that the service is disabled by setting
+     * {@link AllocationBalancingRoundSummaryService#BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING} to a time interval less than zero.
+     */
+    public void testEnableAndThenDisableServiceBySettingIntervalLessThanZero() {
+        startWithEnabledServiceAndThenUpdateSettingToDisable(
+            Settings.builder()
+                .put(AllocationBalancingRoundSummaryService.BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING.getKey(), TimeValue.MINUS_ONE)
+                .build()
+        );
+    }
+
+    public void startWithEnabledServiceAndThenUpdateSettingToDisable(Settings newSettings) {
+        ClusterSettings clusterSettings = new ClusterSettings(enabledSummariesSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
         var service = new AllocationBalancingRoundSummaryService(testThreadPool, clusterSettings);
 
         try (var mockLog = MockLog.capture(AllocationBalancingRoundSummaryService.class)) {
@@ -206,19 +266,17 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
             service.addBalancerRoundSummary(new BalancingRoundSummary(50));
             service.verifyNumberOfSummaries(1);
 
-            Settings newSettings = Settings.builder()
-                .put(AllocationBalancingRoundSummaryService.ENABLE_BALANCER_ROUND_SUMMARIES_SETTING.getKey(), false)
-                .build();
             clusterSettings.applySettings(newSettings);
-
             service.verifyNumberOfSummaries(0);
 
             /**
-             * Verify that new added summaries are not retained, since the service is disabled.
+             * Verify that any additional summaries are not retained, since the service is disabled.
              */
 
             service.addBalancerRoundSummary(new BalancingRoundSummary(50));
             service.verifyNumberOfSummaries(0);
+
+            // Check that the service never logged anything.
             mockLog.addExpectation(
                 new MockLog.UnseenEventExpectation(
                     "Running balancer summary logging",
@@ -227,11 +285,11 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
                     "Balancing round summaries:*"
                 )
             );
-
             deterministicTaskQueue.advanceTime();
             deterministicTaskQueue.runAllRunnableTasks();
             mockLog.awaitAllExpectationsMatched();
             service.verifyNumberOfSummaries(0);
         }
     }
+
 }
