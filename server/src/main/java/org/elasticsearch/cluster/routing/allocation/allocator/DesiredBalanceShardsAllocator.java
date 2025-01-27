@@ -34,7 +34,6 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.metrics.CounterMetric;
 import org.elasticsearch.common.metrics.MeanMetric;
 import org.elasticsearch.common.settings.ClusterSettings;
-import org.elasticsearch.common.util.set.Sets;
 import org.elasticsearch.telemetry.TelemetryProvider;
 import org.elasticsearch.threadpool.ThreadPool;
 
@@ -174,8 +173,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
                             initialDesiredBalance,
                             desiredBalanceInput,
                             pendingDesiredBalanceMoves,
-                            this::isFresh,
-                            threadPool.relativeTimeInMillisSupplier()
+                            this::isFresh
                         )
                     )
                 );
@@ -346,14 +344,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
      * Summarizes the work required to move from an old to new desired balance shard allocation.
      */
     private BalancingRoundSummary calculateBalancingRoundSummary(DesiredBalance oldDesiredBalance, DesiredBalance newDesiredBalance) {
-        long shardsToMove = 0;
-        for (var newAssignment : newDesiredBalance.assignments().entrySet()) {
-            var oldAssignment = oldDesiredBalance.getAssignment(newAssignment.getKey());
-            shardsToMove += Sets.difference(newAssignment.getValue().nodeIds(), oldAssignment.nodeIds()).size();
-        }
-
-        // TODO (ES-10341): this is a WIP.
-        return newDesiredBalance.balancingRoundSummaryBuilder().build();
+        return new BalancingRoundSummary(DesiredBalance.shardMovements(oldDesiredBalance, newDesiredBalance));
     }
 
     protected void submitReconcileTask(DesiredBalance desiredBalance) {

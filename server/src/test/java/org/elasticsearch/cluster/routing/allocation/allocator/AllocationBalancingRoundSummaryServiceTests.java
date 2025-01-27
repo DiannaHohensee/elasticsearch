@@ -18,7 +18,6 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.DeterministicTaskQueue;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.snapshots.SnapshotShutdownProgressTracker;
-import org.elasticsearch.snapshots.SnapshotShutdownProgressTrackerTests;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.MockLog;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -41,7 +40,9 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
     ClusterSettings enabledClusterSettings = new ClusterSettings(enabledSummariesSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
     ClusterSettings disabledClusterSettings = new ClusterSettings(disabledSummariesSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
     ClusterSettings enabledSummariesButDisabledIntervalClusterSettings = new ClusterSettings(
-        enabledSummariesButDisabledIntervalSettings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS);
+        enabledSummariesButDisabledIntervalSettings,
+        ClusterSettings.BUILT_IN_CLUSTER_SETTINGS
+    );
 
     DeterministicTaskQueue deterministicTaskQueue;
 
@@ -55,20 +56,18 @@ public class AllocationBalancingRoundSummaryServiceTests extends ESTestCase {
         testThreadPool = deterministicTaskQueue.getThreadPool();
     }
 
-
     public void testMy() {
-
 
         try (var mockLog = MockLog.capture(Coordinator.class, SnapshotShutdownProgressTracker.class)) {
             mockLog.addExpectation(
-                new MockLog.SeenEventExpectation(     //////// TODO (Dianna)
+                new MockLog.SeenEventExpectation(
+                    //////// TODO (Dianna)
                     "no master status update requests",
                     AllocationBalancingRoundSummaryService.class.getName(),
                     Level.INFO,
                     "*master node reply to status update request [0]*"
                 )
             );
-
 
             deterministicTaskQueue.advanceTime();
             deterministicTaskQueue.runAllRunnableTasks();

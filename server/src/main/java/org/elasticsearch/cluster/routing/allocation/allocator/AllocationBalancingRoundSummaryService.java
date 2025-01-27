@@ -65,25 +65,16 @@ public class AllocationBalancingRoundSummaryService {
     /** This reference is set when reporting is scheduled. If it is null, then reporting is inactive. */
     private AtomicReference<Scheduler.Cancellable> scheduledReportFuture = new AtomicReference<>();
 
-    public AllocationBalancingRoundSummaryService(
-        ThreadPool threadPool,
-        ClusterSettings clusterSettings
-    ) {
+    public AllocationBalancingRoundSummaryService(ThreadPool threadPool, ClusterSettings clusterSettings) {
         this.threadPool = threadPool;
-        clusterSettings.initializeAndWatch(
-            ENABLE_BALANCER_ROUND_SUMMARIES_SETTING,
-            value -> {
-                this.enableBalancerRoundSummaries = value;
-                updateBalancingRoundSummaryReporting();
-            }
-        );
-        clusterSettings.initializeAndWatch(
-            BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING,
-            value -> {
-                this.summaryReportInterval = value;
-                updateBalancingRoundSummaryReporting();
-            }
-        );
+        clusterSettings.initializeAndWatch(ENABLE_BALANCER_ROUND_SUMMARIES_SETTING, value -> {
+            this.enableBalancerRoundSummaries = value;
+            updateBalancingRoundSummaryReporting();
+        });
+        clusterSettings.initializeAndWatch(BALANCER_ROUND_SUMMARIES_LOG_INTERVAL_SETTING, value -> {
+            this.summaryReportInterval = value;
+            updateBalancingRoundSummaryReporting();
+        });
     }
 
     /**
@@ -179,11 +170,9 @@ public class AllocationBalancingRoundSummaryService {
     }
 
     private void scheduleReporting(TimeValue intervalValue) {
-        scheduledReportFuture.set(threadPool.schedule(
-            this::reportSummariesAndThenReschedule,
-            intervalValue,
-            threadPool.executor(ThreadPool.Names.GENERIC)
-        ));
+        scheduledReportFuture.set(
+            threadPool.schedule(this::reportSummariesAndThenReschedule, intervalValue, threadPool.executor(ThreadPool.Names.GENERIC))
+        );
     }
 
     /**

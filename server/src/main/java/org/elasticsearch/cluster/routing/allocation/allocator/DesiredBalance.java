@@ -16,8 +16,6 @@ import org.elasticsearch.index.shard.ShardId;
 import java.util.Map;
 import java.util.Objects;
 
-import static org.elasticsearch.cluster.routing.allocation.allocator.BalancingRoundSummaryBuilder.EMPTY_SUMMARY_BUILDER;
-
 /**
  * The desired balance of the cluster, indicating which nodes should hold a copy of each shard.
  *
@@ -27,15 +25,12 @@ import static org.elasticsearch.cluster.routing.allocation.allocator.BalancingRo
  *                           which runs async to reroute, uses the latest request's data to compute the desired balance.
  * @param assignments a set of the (persistent) node IDs to which each {@link ShardId} should be allocated
  * @param weightsPerNode The node weights calculated based on {@link WeightFunction#calculateNodeWeight}
- * @param balancingRoundSummaryBuilder Contains details about the desired balance computation round that will be used later to summarize
- *                                     the balancing round activity.
  */
 public record DesiredBalance(
     long lastConvergedIndex,
     Map<ShardId, ShardAssignment> assignments,
     Map<DiscoveryNode, DesiredBalanceMetrics.NodeWeightStats> weightsPerNode,
-    ComputationFinishReason finishReason,
-    BalancingRoundSummaryBuilder balancingRoundSummaryBuilder
+    ComputationFinishReason finishReason
 ) {
 
     enum ComputationFinishReason {
@@ -48,7 +43,7 @@ public record DesiredBalance(
     }
 
     public DesiredBalance(long lastConvergedIndex, Map<ShardId, ShardAssignment> assignments) {
-        this(lastConvergedIndex, assignments, Map.of(), ComputationFinishReason.CONVERGED, EMPTY_SUMMARY_BUILDER);
+        this(lastConvergedIndex, assignments, Map.of(), ComputationFinishReason.CONVERGED);
     }
 
     /**
