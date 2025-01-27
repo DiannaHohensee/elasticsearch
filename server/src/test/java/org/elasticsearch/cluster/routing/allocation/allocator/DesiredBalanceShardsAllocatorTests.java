@@ -414,7 +414,12 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     LongSupplier relativeTimeSupplier
                 ) {
                     return super.compute(
-                        previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
+                        previousDesiredBalance,
+                        desiredBalanceInput,
+                        pendingDesiredBalanceMoves,
+                        isFresh,
+                        relativeTimeSupplier
+                    );
                 }
 
                 @Override
@@ -549,7 +554,12 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                         throw new AssertionError(e);
                     }
                     return super.compute(
-                        previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
+                        previousDesiredBalance,
+                        desiredBalanceInput,
+                        pendingDesiredBalanceMoves,
+                        isFresh,
+                        relativeTimeSupplier
+                    );
                 }
             },
             reconcileAction,
@@ -654,7 +664,13 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                     } catch (InterruptedException e) {
                         throw new AssertionError(e);
                     }
-                    return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
+                    return super.compute(
+                        previousDesiredBalance,
+                        desiredBalanceInput,
+                        pendingDesiredBalanceMoves,
+                        isFresh,
+                        relativeTimeSupplier
+                    );
                 }
             },
             reconcileAction,
@@ -742,7 +758,13 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                 LongSupplier relativeTimeSupplier
             ) {
                 lastComputationInput.set(previousDesiredBalance);
-                return super.compute(previousDesiredBalance, desiredBalanceInput, pendingDesiredBalanceMoves, isFresh, relativeTimeSupplier);
+                return super.compute(
+                    previousDesiredBalance,
+                    desiredBalanceInput,
+                    pendingDesiredBalanceMoves,
+                    isFresh,
+                    relativeTimeSupplier
+                );
             }
         };
 

@@ -230,7 +230,7 @@ public record ClusterBalanceStats(
             long forecastShardSize = 0L;
             long actualShardSize = 0L;
 
-            for (ShardRouting shardRouting : routingNode) {
+            for (ShardRouting shardRouting : routingNode) {        ////////////
                 var indexMetadata = metadata.index(shardRouting.index());
                 var shardSize = clusterInfo.getShardSize(shardRouting, 0L);
                 assert indexMetadata != null;
@@ -253,7 +253,7 @@ public record ClusterBalanceStats(
             );
         }
 
-        private static boolean isDesiredShardAllocation(ShardRouting shardRouting, DesiredBalance desiredBalance) {
+        private static boolean isDesiredShardAllocation(ShardRouting shardRouting, DesiredBalance desiredBalance) {          ///////
             if (shardRouting.relocating()) {
                 // relocating out shards are temporarily accepted
                 return true;

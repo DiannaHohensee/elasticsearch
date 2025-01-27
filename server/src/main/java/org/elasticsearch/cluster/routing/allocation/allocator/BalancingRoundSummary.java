@@ -9,7 +9,6 @@
 
 package org.elasticsearch.cluster.routing.allocation.allocator;
 
-
 /**
  * Summarizes the impact to the cluster as a result of a rebalancing round.
  * TODO: this is a WIP, see ES-10341.
@@ -17,21 +16,13 @@ package org.elasticsearch.cluster.routing.allocation.allocator;
  * @param eventStartTime Time at which the desired balance calculation began due to a cluster event.
  * @param duration Time it took to complete desired balance calculation.
  */
-public record BalancingRoundSummary(
-    long eventStartTime,
-    long duration
-) {
+public record BalancingRoundSummary(long eventStartTime, DesiredBalance oldDesiredBalance, long numberOfShardsToMove) {
 
-    public static final BalancingRoundSummary EMPTY_SUMMARY = new BalancingRoundSummary(0,0);
+    public static final BalancingRoundSummary EMPTY_SUMMARY = new BalancingRoundSummary(0, 0);
 
     @Override
     public String toString() {
-        return "BalancingRoundSummary{"
-            + "eventStartTime="
-            + eventStartTime
-            + ", duration="
-            + duration
-            + '}';
+        return "BalancingRoundSummary{" + "eventStartTime=" + eventStartTime + ", numberOfShardsToMove=" + numberOfShardsToMove + '}';
     }
 
 }

@@ -13,10 +13,10 @@ public class BalancingRoundSummaryBuilder {
     public static final BalancingRoundSummaryBuilder EMPTY_SUMMARY_BUILDER = new BalancingRoundSummaryBuilder();
 
     private long eventStartTime = 0;
-    private long duration = 0;
+    private DesiredBalance oldDesiredBalance;
 
     public BalancingRoundSummary build() {
-        return new BalancingRoundSummary(eventStartTime, duration);
+        return new BalancingRoundSummary(eventStartTime, oldDesiredBalance);
     }
 
     public void setEventStartTime(long startTime) {

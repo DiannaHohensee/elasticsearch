@@ -19,26 +19,22 @@ import java.util.List;
  * @param numberOfBalancingRounds How many balancing round summaries are combined in this report.
  * @param duration A list of how long each balancing round took.
  */
-public record CombinedBalancingRoundSummary(
-    int numberOfBalancingRounds,
-    ArrayList<Long> duration
-) {
+public record CombinedBalancingRoundSummary(int numberOfBalancingRounds, ArrayList<Long> duration) {
 
-    public static final CombinedBalancingRoundSummary EMPTY_RESULTS =
-        new CombinedBalancingRoundSummary(0, new ArrayList<>(0));
+    public static final CombinedBalancingRoundSummary EMPTY_RESULTS = new CombinedBalancingRoundSummary(0, new ArrayList<>(0));
 
     public static CombinedBalancingRoundSummary combine(List<BalancingRoundSummary> summaries) {
         if (summaries.isEmpty()) {
             return EMPTY_RESULTS;
         }
 
-        int numSumamries = 0;
+        int numSummaries = 0;
         ArrayList<Long> durations = new ArrayList<>(summaries.size());
         for (BalancingRoundSummary summary : summaries) {
-            ++numSumamries;
+            ++numSummaries;
             durations.add(summary.duration());
         }
-        return new CombinedBalancingRoundSummary(numSumamries,durations);
+        return new CombinedBalancingRoundSummary(numSummaries, durations);
     }
 
 }

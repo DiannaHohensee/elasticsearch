@@ -34,6 +34,7 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.metrics.CounterMetric;
 import org.elasticsearch.common.metrics.MeanMetric;
 import org.elasticsearch.common.settings.ClusterSettings;
+import org.elasticsearch.common.util.set.Sets;
 import org.elasticsearch.telemetry.TelemetryProvider;
 import org.elasticsearch.threadpool.ThreadPool;
 
@@ -87,8 +88,6 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     private final AtomicReference<DesiredBalance> currentDesiredBalanceRef = new AtomicReference<>(DesiredBalance.NOT_MASTER);
     private volatile boolean resetCurrentDesiredBalance = false;
     private final Set<String> processedNodeShutdowns = new HashSet<>();
-    // TODO (Dianna): how do I update this? Do I shove the summaryService into it, so that it can pull metrics??? Or should the
-    // summaryService push the metrics??
     private final DesiredBalanceMetrics desiredBalanceMetrics;
     /**
      * Manages balancer round results in order to report metrics on the balancer activity in a configurable manner.
@@ -138,7 +137,7 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
         NodeAllocationStatsAndWeightsCalculator nodeAllocationStatsAndWeightsCalculator
     ) {
         this.desiredBalanceMetrics = new DesiredBalanceMetrics(telemetryProvider.getMeterRegistry());
-        this.balancerRoundSummaryService = new AllocationBalancingRoundSummaryService();
+        this.balancerRoundSummaryService = new AllocationBalancingRoundSummaryService(threadPool, clusterService.getClusterSettings());
         this.delegateAllocator = delegateAllocator;
         this.threadPool = threadPool;
         this.reconciler = reconciler;
@@ -346,10 +345,13 @@ public class DesiredBalanceShardsAllocator implements ShardsAllocator {
     /**
      * Summarizes the work required to move from an old to new desired balance shard allocation.
      */
-    private BalancingRoundSummary calculateBalancingRoundSummary(
-        DesiredBalance oldDesiredBalance,
-        DesiredBalance newDesiredBalance
-    ) {
+    private BalancingRoundSummary calculateBalancingRoundSummary(DesiredBalance oldDesiredBalance, DesiredBalance newDesiredBalance) {
+        long shardsToMove = 0;
+        for (var newAssignment : newDesiredBalance.assignments().entrySet()) {
+            var oldAssignment = oldDesiredBalance.getAssignment(newAssignment.getKey());
+            shardsToMove += Sets.difference(newAssignment.getValue().nodeIds(), oldAssignment.nodeIds()).size();
+        }
+
         // TODO (ES-10341): this is a WIP.
         return newDesiredBalance.balancingRoundSummaryBuilder().build();
     }

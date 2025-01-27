@@ -413,7 +413,12 @@ public class DesiredBalanceComputer {
         long lastConvergedIndex = hasChanges ? previousDesiredBalance.lastConvergedIndex() : desiredBalanceInput.index();
         balancingRoundSummaryBuilder.setEventEndTime(relativeTimeSupplier.getAsLong());
         return new DesiredBalance(
-            lastConvergedIndex, assignments, routingNodes.getBalanceWeightStatsPerNode(), finishReason, balancingRoundSummaryBuilder);
+            lastConvergedIndex,
+            assignments,
+            routingNodes.getBalanceWeightStatsPerNode(),
+            finishReason,
+            balancingRoundSummaryBuilder
+        );
     }
 
     // visible for testing
