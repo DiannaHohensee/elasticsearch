@@ -237,6 +237,7 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
             (indexName, nodeId) -> indexName.equals("index-0") && nodeId.equals("node-0")
         );
 
+        // Check the reconciliation stats, too.
         AtomicReference<DesiredBalanceMetrics.AllocationStats> allocationStats = new AtomicReference<>();
 
         final var allocationService = createTestAllocationService(

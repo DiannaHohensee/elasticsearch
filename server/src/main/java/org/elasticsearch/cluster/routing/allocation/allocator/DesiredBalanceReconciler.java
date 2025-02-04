@@ -150,7 +150,7 @@ public class DesiredBalanceReconciler {
                 // 2. move any shards that cannot remain where they are
                 logger.trace("Reconciler#moveShards");
                 moveShards();
-                // 3. move any other shards that are desired elsewhere
+                // 3. move any other shards that are desired elsewhere --- this is the rebalancer, above is always done, desired disregarded
                 logger.trace("Reconciler#balance");
                 DesiredBalanceMetrics.AllocationStats allocationStats = balance();
 
@@ -480,6 +480,7 @@ public class DesiredBalanceReconciler {
         }
 
         private DesiredBalanceMetrics.AllocationStats balance() {
+            // skip if unhealthy, delay, off by default now, with desired balancer allocator
             if (allocation.deciders().canRebalance(allocation).type() != Decision.Type.YES) {
                 return DesiredBalanceMetrics.EMPTY_ALLOCATION_STATS;
             }
