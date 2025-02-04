@@ -110,6 +110,8 @@ import static org.mockito.Mockito.when;
 
 public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
 
+    private static AtomicReference<DesiredBalanceMetrics.AllocationStats> ALLOCATION_STATS_PLACEHOLDER = new AtomicReference<>();
+
     public void testNoChangesOnEmptyDesiredBalance() {
         final var clusterState = DesiredBalanceComputerTests.createInitialClusterState(3);
         final var routingAllocation = createRoutingAllocationFrom(clusterState);
@@ -235,8 +237,10 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
             (indexName, nodeId) -> indexName.equals("index-0") && nodeId.equals("node-0")
         );
 
+        AtomicReference<DesiredBalanceMetrics.AllocationStats> allocationStats = new AtomicReference<>();
+
         final var allocationService = createTestAllocationService(
-            routingAllocation -> reconcile(routingAllocation, desiredBalance),
+            routingAllocation -> reconcile(routingAllocation, desiredBalance, allocationStats),
             new SameShardAllocationDecider(clusterSettings),
             new ReplicaAfterPrimaryActiveAllocationDecider(),
             new ThrottlingAllocationDecider(clusterSettings),
@@ -260,6 +264,8 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
             final var index1RoutingTable = stateWithStartedPrimary.routingTable().shardRoutingTable("index-1", 0);
             assertTrue(index1RoutingTable.primaryShard().unassigned());
             assertTrue(index1RoutingTable.replicaShards().stream().allMatch(ShardRouting::unassigned));
+            assertNotNull(allocationStats.get());
+            assertEquals(new DesiredBalanceMetrics.AllocationStats(3, 1, 0), allocationStats.get());
         }
 
         // now relax the filter so that the replica of index-0 and the primary of index-1 can both be assigned to node-1, but the throttle
@@ -273,6 +279,8 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
             final var index1RoutingTable = stateWithInitializingSecondPrimary.routingTable().shardRoutingTable("index-1", 0);
             assertTrue(index1RoutingTable.primaryShard().initializing());
             assertTrue(index1RoutingTable.replicaShards().stream().allMatch(ShardRouting::unassigned));
+            assertNotNull(allocationStats.get());
+            assertEquals(new DesiredBalanceMetrics.AllocationStats(2, 2, 0), allocationStats.get());
         }
 
         final var stateWithStartedPrimariesAndInitializingReplica = startInitializingShardsAndReroute(
@@ -286,6 +294,8 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
             final var index1RoutingTable = stateWithStartedPrimariesAndInitializingReplica.routingTable().shardRoutingTable("index-1", 0);
             assertTrue(index1RoutingTable.primaryShard().started());
             assertTrue(index1RoutingTable.replicaShards().stream().allMatch(ShardRouting::unassigned));
+            assertNotNull(allocationStats.get());
+            assertEquals(new DesiredBalanceMetrics.AllocationStats(1, 3, 0), allocationStats.get());
         }
     }
 
@@ -1344,9 +1354,18 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
     }
 
     private static void reconcile(RoutingAllocation routingAllocation, DesiredBalance desiredBalance) {
+        reconcile(routingAllocation, desiredBalance, ALLOCATION_STATS_PLACEHOLDER);
+    }
+
+    private static void reconcile(
+        RoutingAllocation routingAllocation,
+        DesiredBalance desiredBalance,
+        AtomicReference<DesiredBalanceMetrics.AllocationStats> allocationStatsAtomicReference) {
         final var threadPool = mock(ThreadPool.class);
         when(threadPool.relativeTimeInMillisSupplier()).thenReturn(new AtomicLong()::incrementAndGet);
-        new DesiredBalanceReconciler(createBuiltInClusterSettings(), threadPool).reconcile(desiredBalance, routingAllocation);
+        allocationStatsAtomicReference.set(
+            new DesiredBalanceReconciler(createBuiltInClusterSettings(), threadPool).reconcile(desiredBalance, routingAllocation)
+        );
     }
 
     private static boolean isReconciled(RoutingNode node, DesiredBalance balance) {
