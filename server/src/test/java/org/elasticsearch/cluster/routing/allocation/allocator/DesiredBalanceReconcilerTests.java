@@ -1375,7 +1375,9 @@ public class DesiredBalanceReconcilerTests extends ESAllocationTestCase {
     }
 
     private static void reconcile(RoutingAllocation routingAllocation, DesiredBalance desiredBalance) {
-        reconcile(routingAllocation, desiredBalance, ALLOCATION_STATS_PLACEHOLDER);
+        final var threadPool = mock(ThreadPool.class);
+        when(threadPool.relativeTimeInMillisSupplier()).thenReturn(new AtomicLong()::incrementAndGet);
+        new DesiredBalanceReconciler(createBuiltInClusterSettings(), threadPool).reconcile(desiredBalance, routingAllocation);
     }
 
     private static void reconcile(
