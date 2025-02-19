@@ -9,11 +9,24 @@
 
 package org.elasticsearch.repositories.s3;
 
-import com.amazonaws.AmazonServiceException;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.http.SdkHttpConfigurationOption;
+import software.amazon.awssdk.core.retry.RetryMode;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+
+import software.amazon.awssdk.core.retry.PredefinedRetryPolicies;
+// import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.exception.SdkException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.SDKGlobalConfiguration;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+//import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+//import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import com.amazonaws.auth.AWSCredentialsProviderChain;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.AnonymousAWSCredentials;
@@ -47,6 +60,10 @@ import org.elasticsearch.env.Environment;
 import org.elasticsearch.watcher.FileChangesListener;
 import org.elasticsearch.watcher.FileWatcher;
 import org.elasticsearch.watcher.ResourceWatcherService;
+
+import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -189,12 +206,15 @@ class S3Service implements Closeable {
     }
 
     // proxy for testing
-    AmazonS3 buildClient(final S3ClientSettings clientSettings) {
-        final AmazonS3ClientBuilder builder = buildClientBuilder(clientSettings);
-        return SocketAccess.doPrivileged(builder::build);
-    }
+    S3Client buildClient(final S3ClientSettings clientSettings) {
+//        final AmazonS3ClientBuilder builder = buildClientBuilder(clientSettings);
+//        return SocketAccess.doPrivileged(builder::build);
 
-    protected AmazonS3ClientBuilder buildClientBuilder(S3ClientSettings clientSettings) {
+        final S3Client builder = S3Client
+            .builder()
+            .credentialsProvider(buildCredentials(LOGGER, clientSettings, webIdentityTokenCredentialsProvider))
+            .build();
+
         final AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
         builder.withCredentials(buildCredentials(LOGGER, clientSettings, webIdentityTokenCredentialsProvider));
         final ClientConfiguration clientConfiguration = buildConfiguration(clientSettings, isStateless);
@@ -230,8 +250,11 @@ class S3Service implements Closeable {
     }
 
     // pkg private for tests
-    static ClientConfiguration buildConfiguration(S3ClientSettings clientSettings, boolean isStateless) {
-        final ClientConfiguration clientConfiguration = new ClientConfiguration();
+    static ClientOverrideConfiguration buildConfiguration(S3ClientSettings clientSettings, boolean isStateless) {
+        final ClientOverrideConfiguration clientConfiguration = ClientOverrideConfiguration.builder()
+            .retryPolicy(isStateless ? RETRYABLE_403_RETRY_POLICY : PredefinedRetryPolicies.DEFAULT)
+            .build();
+
         // the response metadata cache is only there for diagnostics purposes,
         // but can force objects from every response to the old generation.
         clientConfiguration.setResponseMetadataCacheSize(0);
@@ -263,7 +286,7 @@ class S3Service implements Closeable {
     }
 
     // pkg private for tests
-    static AWSCredentialsProvider buildCredentials(
+    static AwsCredentialsProvider buildCredentials(
         Logger logger,
         S3ClientSettings clientSettings,
         CustomWebIdentityTokenCredentialsProvider webIdentityTokenCredentialsProvider
@@ -313,19 +336,19 @@ class S3Service implements Closeable {
         webIdentityTokenCredentialsProvider.shutdown();
     }
 
-    static class PrivilegedAWSCredentialsProvider implements AWSCredentialsProvider {
-        private final AWSCredentialsProvider credentialsProvider;
+    static class PrivilegedAWSCredentialsProvider implements AwsCredentialsProvider {
+        private final AwsCredentialsProvider credentialsProvider;
 
-        private PrivilegedAWSCredentialsProvider(AWSCredentialsProvider credentialsProvider) {
+        private PrivilegedAWSCredentialsProvider(AwsCredentialsProvider credentialsProvider) {
             this.credentialsProvider = credentialsProvider;
         }
 
-        AWSCredentialsProvider getCredentialsProvider() {
+        AwsCredentialsProvider getCredentialsProvider() {
             return credentialsProvider;
         }
 
         @Override
-        public AWSCredentials getCredentials() {
+        public AwsCredentials getCredentials() {
             return SocketAccess.doPrivileged(credentialsProvider::getCredentials);
         }
 
@@ -345,7 +368,7 @@ class S3Service implements Closeable {
      * <li>Supports gracefully shutting down the provider and the STS client.</li>
      * </ul>
      */
-    static class CustomWebIdentityTokenCredentialsProvider implements AWSCredentialsProvider {
+    static class CustomWebIdentityTokenCredentialsProvider implements AwsCredentialsProvider {
 
         private static final String STS_HOSTNAME = "https://sts.amazonaws.com";
 
@@ -462,17 +485,17 @@ class S3Service implements Closeable {
         }
 
         @Override
-        public AWSCredentials getCredentials() {
+        public AwsCredentials resolveCredentials() {
             Objects.requireNonNull(credentialsProvider, "credentialsProvider is not set");
             return credentialsProvider.getCredentials();
         }
 
-        @Override
-        public void refresh() {
-            if (credentialsProvider != null) {
-                credentialsProvider.refresh();
-            }
-        }
+//        @Override
+//        public void refresh() {
+//            if (credentialsProvider != null) {
+//                credentialsProvider.refresh();
+//            }
+//        }
 
         public void shutdown() throws IOException {
             if (credentialsProvider != null) {
@@ -481,18 +504,18 @@ class S3Service implements Closeable {
         }
     }
 
-    static class ErrorLoggingCredentialsProvider implements AWSCredentialsProvider {
+    static class ErrorLoggingCredentialsProvider implements AwsCredentialsProvider {
 
-        private final AWSCredentialsProvider delegate;
+        private final AwsCredentialsProvider delegate;
         private final Logger logger;
 
-        ErrorLoggingCredentialsProvider(AWSCredentialsProvider delegate, Logger logger) {
+        ErrorLoggingCredentialsProvider(AwsCredentialsProvider delegate, Logger logger) {
             this.delegate = Objects.requireNonNull(delegate);
             this.logger = Objects.requireNonNull(logger);
         }
 
         @Override
-        public AWSCredentials getCredentials() {
+        public AwsCredentials getCredentials() {
             try {
                 return delegate.getCredentials();
             } catch (Exception e) {
@@ -527,8 +550,8 @@ class S3Service implements Closeable {
             if (PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION.shouldRetry(originalRequest, exception, retriesAttempted)) {
                 return true;
             }
-            if (exception instanceof AmazonServiceException ase) {
-                return ase.getStatusCode() == HttpStatus.SC_FORBIDDEN && "InvalidAccessKeyId".equals(ase.getErrorCode());
+            if (exception instanceof SdkException ase) {
+                return ase.getErrorCode() == HttpStatus.SC_FORBIDDEN && "InvalidAccessKeyId".equals(ase.getErrorCode());
             }
             return false;
         })

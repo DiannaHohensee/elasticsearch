@@ -9,15 +9,13 @@
 
 package org.elasticsearch.repositories.s3;
 
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.Protocol;
-
 import org.elasticsearch.common.settings.SecureSetting;
 import org.elasticsearch.common.settings.SecureString;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Setting.Property;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.TimeValue;
+import org.elasticsearch.discovery.ec2.HttpScheme;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -46,6 +44,9 @@ final class S3ClientSettings {
 
     /** Placeholder client name for normalizing client settings in the repository settings. */
     private static final String PLACEHOLDER_CLIENT = "placeholder";
+
+    static final int SOCKET_TIMEOUT_MILLIS = 30000;
+    static final int DEFAULT_THROTTLE_RETRIES
 
     /** The access key (ie login id) for connecting to s3. */
     static final Setting.AffixSetting<SecureString> ACCESS_KEY_SETTING = Setting.affixKeySetting(
@@ -76,10 +77,10 @@ final class S3ClientSettings {
     );
 
     /** The protocol to use to connect to s3. */
-    static final Setting.AffixSetting<Protocol> PROTOCOL_SETTING = Setting.affixKeySetting(
+    static final Setting.AffixSetting<HttpScheme> PROTOCOL_SETTING = Setting.affixKeySetting(
         PREFIX,
         "protocol",
-        key -> new Setting<>(key, "https", s -> Protocol.valueOf(s.toUpperCase(Locale.ROOT)), Property.NodeScope)
+        key -> new Setting<>(key, "https", s -> HttpScheme.valueOf(s.toUpperCase(Locale.ROOT)), Property.NodeScope)
     );
 
     /** The host name of a proxy to connect to s3 through. */
@@ -97,10 +98,10 @@ final class S3ClientSettings {
     );
 
     /** The proxy scheme for connecting to S3 through a proxy. */
-    static final Setting.AffixSetting<Protocol> PROXY_SCHEME_SETTING = Setting.affixKeySetting(
+    static final Setting.AffixSetting<HttpScheme> PROXY_SCHEME_SETTING = Setting.affixKeySetting(
         PREFIX,
         "proxy.scheme",
-        key -> new Setting<>(key, "http", s -> Protocol.valueOf(s.toUpperCase(Locale.ROOT)), Property.NodeScope)
+        key -> new Setting<>(key, "http", s -> HttpScheme.valueOf(s.toUpperCase(Locale.ROOT)), Property.NodeScope)
     );
 
     /** The username of a proxy to connect to s3 through. */
@@ -121,7 +122,7 @@ final class S3ClientSettings {
     static final Setting.AffixSetting<TimeValue> READ_TIMEOUT_SETTING = Setting.affixKeySetting(
         PREFIX,
         "read_timeout",
-        key -> Setting.timeSetting(key, TimeValue.timeValueMillis(ClientConfiguration.DEFAULT_SOCKET_TIMEOUT), Property.NodeScope)
+        key -> Setting.timeSetting(key, TimeValue.timeValueMillis(SOCKET_TIMEOUT_MILLIS), Property.NodeScope)
     );
 
     /** The maximum number of concurrent connections to use. */
@@ -179,8 +180,8 @@ final class S3ClientSettings {
     /** The s3 endpoint the client should talk to, or empty string to use the default. */
     final String endpoint;
 
-    /** The protocol to use to talk to s3. Defaults to https. */
-    final Protocol protocol;
+    /** The scheme to use to talk to s3. Defaults to https. */
+    final HttpScheme protocol;
 
     /** An optional proxy host that requests to s3 should be made through. */
     final String proxyHost;
@@ -189,7 +190,7 @@ final class S3ClientSettings {
     final int proxyPort;
 
     /** The proxy scheme to use for connecting to s3 through a proxy. */
-    final Protocol proxyScheme;
+    final HttpScheme proxyScheme;
 
     // these should be "secure" yet the api for the s3 client only takes String, so storing them
     // as SecureString here won't really help with anything
@@ -226,10 +227,10 @@ final class S3ClientSettings {
     private S3ClientSettings(
         S3BasicCredentials credentials,
         String endpoint,
-        Protocol protocol,
+        HttpScheme protocol,
         String proxyHost,
         int proxyPort,
-        Protocol proxyScheme,
+        HttpScheme proxyScheme,
         String proxyUsername,
         String proxyPassword,
         int readTimeoutMillis,
@@ -273,10 +274,10 @@ final class S3ClientSettings {
             .build();
         final String newEndpoint = getRepoSettingOrDefault(ENDPOINT_SETTING, normalizedSettings, endpoint);
 
-        final Protocol newProtocol = getRepoSettingOrDefault(PROTOCOL_SETTING, normalizedSettings, protocol);
+        final HttpScheme newProtocol = getRepoSettingOrDefault(PROTOCOL_SETTING, normalizedSettings, protocol);
         final String newProxyHost = getRepoSettingOrDefault(PROXY_HOST_SETTING, normalizedSettings, proxyHost);
         final int newProxyPort = getRepoSettingOrDefault(PROXY_PORT_SETTING, normalizedSettings, proxyPort);
-        final Protocol newProxyScheme = getRepoSettingOrDefault(PROXY_SCHEME_SETTING, normalizedSettings, proxyScheme);
+        final HttpScheme newProxyScheme = getRepoSettingOrDefault(PROXY_SCHEME_SETTING, normalizedSettings, proxyScheme);
         final int newReadTimeoutMillis = Math.toIntExact(
             getRepoSettingOrDefault(READ_TIMEOUT_SETTING, normalizedSettings, TimeValue.timeValueMillis(readTimeoutMillis)).millis()
         );

@@ -28,6 +28,8 @@ import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.hamcrest.Matchers;
 import org.mockito.Mockito;
 
+import software.amazon.awssdk.services.s3.S3Client;
+
 import java.util.Map;
 
 import static org.hamcrest.Matchers.allOf;
@@ -38,7 +40,7 @@ import static org.hamcrest.Matchers.nullValue;
 
 public class S3RepositoryTests extends ESTestCase {
 
-    private static class DummyS3Client extends AbstractAmazonS3 {
+    private static class DummyS3Client extends S3Client {
 
         @Override
         public void shutdown() {

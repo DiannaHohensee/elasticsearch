@@ -23,6 +23,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Supplier;
 import org.elasticsearch.common.settings.MockSecureSettings;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.discovery.ec2.HttpScheme;
 import org.elasticsearch.test.ESTestCase;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -152,14 +153,14 @@ public class AwsS3ServiceImplTests extends ESTestCase {
     public void testAWSDefaultConfiguration() {
         launchAWSConfigurationTest(
             Settings.EMPTY,
-            Protocol.HTTPS,
+            HttpScheme.HTTPS,
             null,
             -1,
             null,
             null,
             3,
-            ClientConfiguration.DEFAULT_THROTTLE_RETRIES,
-            ClientConfiguration.DEFAULT_SOCKET_TIMEOUT
+            S3ClientSettings.DEFAULT_THROTTLE_RETRIES,
+            S3ClientSettings.SOCKET_TIMEOUT_MILLIS
         );
     }
 
