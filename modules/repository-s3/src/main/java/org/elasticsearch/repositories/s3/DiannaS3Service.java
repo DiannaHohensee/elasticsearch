@@ -9,6 +9,12 @@
 
 package org.elasticsearch.repositories.s3;
 
+import com.amazonaws.waiters.PollingStrategy;
+
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.retry.RetryPolicy;
+import software.amazon.awssdk.retries.StandardRetryStrategy;
+
 import com.amazonaws.AmazonServiceException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.SDKGlobalConfiguration;
@@ -22,7 +28,6 @@ import com.amazonaws.auth.STSAssumeRoleWithWebIdentitySessionCredentialsProvider
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.http.IdleConnectionReaper;
 import com.amazonaws.retry.PredefinedRetryPolicies;
-import com.amazonaws.retry.RetryPolicy;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.internal.Constants;
@@ -48,9 +53,7 @@ import org.elasticsearch.watcher.FileChangesListener;
 import org.elasticsearch.watcher.FileWatcher;
 import org.elasticsearch.watcher.ResourceWatcherService;
 
-import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3ClientBuilder;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -66,8 +69,8 @@ import static com.amazonaws.SDKGlobalConfiguration.AWS_ROLE_SESSION_NAME_ENV_VAR
 import static com.amazonaws.SDKGlobalConfiguration.AWS_WEB_IDENTITY_ENV_VAR;
 import static java.util.Collections.emptyMap;
 
-class S3Service implements Closeable {
-    private static final Logger LOGGER = LogManager.getLogger(S3Service.class);
+class DiannaS3Service implements Closeable {
+    private static final Logger LOGGER = LogManager.getLogger(DiannaS3Service.class);
 
     static final Setting<TimeValue> REPOSITORY_S3_CAS_TTL_SETTING = Setting.timeSetting(
         "repository_s3.compare_and_exchange.time_to_live",
@@ -104,7 +107,7 @@ class S3Service implements Closeable {
     final TimeValue compareAndExchangeAntiContentionDelay;
     final boolean isStateless;
 
-    S3Service(Environment environment, Settings nodeSettings, ResourceWatcherService resourceWatcherService) {
+    DiannaS3Service(Environment environment, Settings nodeSettings, ResourceWatcherService resourceWatcherService) {
         webIdentityTokenCredentialsProvider = new CustomWebIdentityTokenCredentialsProvider(
             environment,
             System::getenv,
@@ -150,8 +153,6 @@ class S3Service implements Closeable {
             if (existing != null && existing.tryIncRef()) {
                 return existing;
             }
-            // (Dianna): building the client here using the client settings. Can see what settings we actually need.
-            // TODO: don't need to wrap an S3Client in a Reference class. Not shutdown logic anymore.
             final AmazonS3Reference clientReference = new AmazonS3Reference(buildClient(clientSettings));
             clientReference.mustIncRef();
             clientsCache = Maps.copyMapWithAddedEntry(clientsCache, clientSettings, clientReference);
@@ -196,14 +197,27 @@ class S3Service implements Closeable {
 
     // proxy for testing
     AmazonS3 buildClient(final S3ClientSettings clientSettings) {
+        // TODO (Dianna): identify what settings in `clientSettings` are actually still needed.
+        // This client building is the main roadblock in conversion. Maybe take a look at David's EC2Client solution, might be similar.
         final AmazonS3ClientBuilder builder = buildClientBuilder(clientSettings);
         return SocketAccess.doPrivileged(builder::build);
     }
 
     protected AmazonS3ClientBuilder buildClientBuilder(S3ClientSettings clientSettings) {
+
+        S3Client client = S3Client.builder().;
+        ClientOverrideConfiguration clientOverrideConfiguration = ClientOverrideConfiguration.builder().retryStrategy()
+
+
+
+
         final AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
+
         builder.withCredentials(buildCredentials(LOGGER, clientSettings, webIdentityTokenCredentialsProvider));
+
         final ClientConfiguration clientConfiguration = buildConfiguration(clientSettings, isStateless);
+        // (Dianna): not stateless: should be using default retry policies
+        // stateless: should be using custom retry policies
         assert (isStateless == false && clientConfiguration.getRetryPolicy() == PredefinedRetryPolicies.DEFAULT)
             || (isStateless && clientConfiguration.getRetryPolicy() == RETRYABLE_403_RETRY_POLICY) : "invalid retry policy configuration";
         builder.withClientConfiguration(clientConfiguration);
@@ -528,6 +542,9 @@ class S3Service implements Closeable {
         String getProperty(String key, String defaultValue);
     }
 
+    static final StandardRetryStrategy DIANNA_RETRY_POLICY = StandardRetryStrategy.builder().;
+
+    // TODO (Dianna): need to build a new policy for v2 ?
     static final RetryPolicy RETRYABLE_403_RETRY_POLICY = RetryPolicy.builder()
         .withRetryCondition((originalRequest, exception, retriesAttempted) -> {
             if (PredefinedRetryPolicies.DEFAULT_RETRY_CONDITION.shouldRetry(originalRequest, exception, retriesAttempted)) {
