@@ -15,6 +15,7 @@ import org.elasticsearch.action.admin.cluster.allocation.TransportClusterAllocat
 import org.elasticsearch.action.admin.cluster.allocation.TransportDeleteDesiredBalanceAction;
 import org.elasticsearch.action.admin.cluster.allocation.TransportGetAllocationStatsAction;
 import org.elasticsearch.action.admin.cluster.allocation.TransportGetDesiredBalanceAction;
+import org.elasticsearch.action.admin.cluster.allocation.TransportNodeWriteLoadUpdateAction;
 import org.elasticsearch.action.admin.cluster.configuration.TransportAddVotingConfigExclusionsAction;
 import org.elasticsearch.action.admin.cluster.configuration.TransportClearVotingConfigExclusionsAction;
 import org.elasticsearch.action.admin.cluster.coordination.ClusterFormationInfoAction;
@@ -717,6 +718,7 @@ public class ActionModule extends AbstractModule {
         actions.register(TransportClearIndicesCacheAction.TYPE, TransportClearIndicesCacheAction.class);
         actions.register(GetAliasesAction.INSTANCE, TransportGetAliasesAction.class);
         actions.register(GetSettingsAction.INSTANCE, TransportGetSettingsAction.class);
+        actions.register(TransportNodeWriteLoadUpdateAction.TYPE, TransportNodeWriteLoadUpdateAction.class);
 
         actions.register(TransportIndexAction.TYPE, TransportIndexAction.class);
         actions.register(TransportGetAction.TYPE, TransportGetAction.class);

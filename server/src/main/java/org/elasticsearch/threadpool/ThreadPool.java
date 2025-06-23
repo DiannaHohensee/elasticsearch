@@ -210,6 +210,7 @@ public class ThreadPool implements ReportingService<ThreadPoolInfo>, Scheduler, 
 
     public static final double searchAutoscalingEWMA = 0.1;
 
+    // NOMERGE: revisiti the logic explained here
     // This value is chosen such that a sudden increase in the task durations would need to persist roughly for 120 samples
     // for the EWMA value to be mostly representative of the increased task durations. Mostly representative means that the
     // EWMA value is at least within 90% of the new increased task duration. This value also determines the impact of a single
@@ -268,6 +269,30 @@ public class ThreadPool implements ReportingService<ThreadPoolInfo>, Scheduler, 
         DEFAULT_INDEX_AUTOSCALING_EWMA_ALPHA,
         0.0,
         1.0,
+        Setting.Property.NodeScope
+    );
+
+    /**
+     * The {@link org.elasticsearch.common.ExponentiallyWeightedMovingAverage} alpha for tracking task queue latency.
+     */
+    public static final Setting<Double> THREAD_POOL_QUEUE_LATENCY_EWMA_ALPHA = Setting.doubleSetting(
+        "thread_pool.task_tracking.queue_latency.ewma_alpha",
+        0.6,
+        0,
+        1,
+        Setting.Property.Dynamic,
+        Setting.Property.NodeScope
+    );
+
+    /**
+     * The {@link org.elasticsearch.common.ExponentiallyWeightedMovingAverage} alpha for tracking thread pool thread utilization percentage.
+     */
+    public static final Setting<Double> THREAD_POOL_THREAD_UTILIZATION_EWMA_ALPHA = Setting.doubleSetting(
+        "thread_pool.threads.percent_utilization.ewma_alpha",
+        0.6,
+        0,
+        1,
+        Setting.Property.Dynamic,
         Setting.Property.NodeScope
     );
 
