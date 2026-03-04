@@ -907,6 +907,8 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                 .dataPath(Map.of(ClusterInfo.NodeAndShard.from(shardRouting0), "/data/path0"))
                 .shardWriteLoads(Map.of(shardId0, 10.0d, shardId1, 10.0d))
                 .nodeUsageStatsForThreadPools(initialThreadPoolStats)
+                .estimatedHeapUsages(Map.of()) // TODO DIANNA - set up even node heap usage
+                .estimatedShardHeapUsages(Map.of()) // TODO DIANNA - set up standard per shard heap usage
                 .build()
         );
 
@@ -946,6 +948,7 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                 )
             );
             assertThat(firstNodeUpdatedStats.maxThreadPoolQueueLatencyMillis(), equalTo(0L));
+            // TODO DIANNA: check that the heap usage for the first node has been reduced
 
             // Second node has increased utilization since shard0 moved onto it. Latency does not change for incoming shards
             final var secondNodeUpdatedStats = updatedClusterInfo.getNodeUsageStatsForThreadPools()
@@ -954,6 +957,7 @@ public class DesiredBalanceShardsAllocatorTests extends ESAllocationTestCase {
                 .get(ThreadPool.Names.WRITE);
             assertThat(secondNodeUpdatedStats.averageThreadPoolUtilization(), equalTo(1.0f));
             assertThat(secondNodeUpdatedStats.maxThreadPoolQueueLatencyMillis(), equalTo(0L));
+            // TODO DIANNA: check that the heap usage for the second node has been increased
 
             // Third node has increased utilization since shard1 started on it
             final var thirdNodeUpdatedStats = updatedClusterInfo.getNodeUsageStatsForThreadPools()
